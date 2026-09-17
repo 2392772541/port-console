@@ -1,0 +1,30 @@
+﻿{
+  "scan_roots": [
+    ".."
+  ],
+  "projects": [
+    {
+      "id": "port-atlas",
+      "name": "项目端口台",
+      "process_label": "端口台后台",
+      "description": "当前这个网页，用来查看和启动你登记过的本机项目。",
+      "type": "command",
+      "working_directory": "..",
+      "command": [
+        "python",
+        "server.py"
+      ],
+      "expected_ports": [
+        8787
+      ],
+      "url": "http://127.0.0.1:8787",
+      "enabled": true,
+      "allow_stop": false,
+      "tags": [
+        "管理工具",
+        "本机网页"
+      ],
+      "stop_disabled_reason": "这是当前工作台自己，关闭后就无法在这里管理项目；需要关闭时运行项目目录里的 stop.ps1。"
+    }
+  ]
+}

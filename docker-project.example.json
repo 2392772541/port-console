@@ -1,0 +1,13 @@
+{
+  "id": "my-docker-project",
+  "name": "我的 Docker 项目",
+  "description": "由 Docker Compose 管理的项目。",
+  "type": "docker-compose",
+  "working_directory": ".",
+  "compose_file": "compose.yaml",
+  "expected_ports": [3000],
+  "url": "http://127.0.0.1:3000",
+  "enabled": true,
+  "allow_stop": true,
+  "tags": ["Docker", "Compose"]
+}

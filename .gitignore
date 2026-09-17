@@ -1,0 +1,19 @@
+﻿# Runtime & logs
+.runtime/
+logs/
+__pycache__/
+*.pyc
+
+# Dynamic state & backups
+config/observed-state.json
+*.backup*
+*.bak*
+
+# Test artifacts
+tests/artifacts/*.png
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,13 @@
+{
+  "id": "my-python-project",
+  "name": "我的 Python 项目",
+  "description": "复制到项目根目录并改名为 port-console.project.json。",
+  "type": "command",
+  "working_directory": ".",
+  "command": ["python", "app.py"],
+  "expected_ports": [8000],
+  "url": "http://127.0.0.1:8000",
+  "enabled": true,
+  "allow_stop": true,
+  "tags": ["Python", "API"]
+}

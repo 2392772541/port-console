@@ -1,0 +1,538 @@
+{
+  "scan_roots": [
+    ".."
+  ],
+  "projects": [
+    {
+      "id": "port-atlas",
+      "name": "项目端口台",
+      "process_label": "端口台后台",
+      "description": "当前这个网页，用来查看和启动你登记过的本机项目。",
+      "type": "command",
+      "working_directory": "..",
+      "command": [
+        "python",
+        "server.py"
+      ],
+      "expected_ports": [
+        8787
+      ],
+      "url": "http://127.0.0.1:8787",
+      "enabled": true,
+      "allow_stop": false,
+      "tags": [
+        "管理工具",
+        "本机网页"
+      ],
+      "stop_disabled_reason": "这是当前工作台自己，关闭后就无法在这里管理项目；需要关闭时运行项目目录里的 stop.ps1。"
+    },
+    {
+      "id": "ai-media-library",
+      "name": "AI 素材库",
+      "process_label": "素材库后台",
+      "description": "搜索、预览和整理本机的视频、图片与音频素材。",
+      "type": "command",
+      "working_directory": "E:\\创作素材库",
+      "command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-WindowStyle",
+        "Hidden",
+        "-File",
+        "E:\\创作素材库\\05_素材库管理\\04_AI素材管理系统\\scripts\\portable-start.ps1"
+      ],
+      "expected_ports": [
+        8090
+      ],
+      "url": "http://127.0.0.1:8090",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "素材管理",
+        "图片",
+        "视频",
+        "音频"
+      ],
+      "stop_command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "E:\\创作素材库\\05_素材库管理\\04_AI素材管理系统\\scripts\\portable-stop.ps1"
+      ]
+    },
+    {
+      "id": "tts-story-f5",
+      "name": "文字转语音",
+      "process_label": "语音生成服务",
+      "description": "使用 IndexTTS 将文字生成语音，并管理音色和历史生成任务。",
+      "type": "command",
+      "working_directory": "D:\\HeyGem\\tts-story-f5",
+      "command": [
+        "C:\\Windows\\System32\\cmd.exe",
+        "/d",
+        "/c",
+        "run.bat"
+      ],
+      "expected_ports": [
+        5000
+      ],
+      "url": "http://127.0.0.1:5000",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "IndexTTS",
+        "配音",
+        "语音生成"
+      ],
+      "stop_command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "D:\\HeyGem\\tts-story-f5\\stop.ps1"
+      ]
+    },
+    {
+      "id": "heygem-digital-human",
+      "name": "HeyGem 数字人",
+      "process_label": "数字人合成服务",
+      "description": "使用 Duix.Avatar 制作数字人口播视频，包含视频合成、配音和任务队列。支持 Index-TTS2 模式(18180)与 Fish-Speech 模式(8383)。",
+      "type": "command",
+      "working_directory": "C:\\Users\\win10\\Desktop\\爬虫文件存放\\HeyGem相关\\HeyGem-OneClick",
+      "command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "C:\\Users\\win10\\Desktop\\爬虫文件存放\\HeyGem相关\\HeyGem-OneClick\\start-heygem.ps1"
+      ],
+      "stop_command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "C:\\Users\\win10\\Desktop\\爬虫文件存放\\HeyGem相关\\HeyGem-OneClick\\stop-heygem.ps1"
+      ],
+      "expected_ports": [
+        18180,
+        8383
+      ],
+      "url": "http://127.0.0.1:18180/",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "数字人",
+        "Duix.Avatar",
+        "Index-TTS2",
+        "Docker"
+      ]
+    },
+    {
+      "id": "qwen-local-model",
+      "name": "Qwen 本地模型",
+      "process_label": "本地模型与聊天服务",
+      "description": "本机运行 Qwen3.8 模型，通过 Open WebUI 聊天，并支持 MiMo 联网搜索。",
+      "type": "command",
+      "working_directory": "E:\\AI\\LocalLLM",
+      "command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "E:\\AI\\LocalLLM\\start-qwen38.ps1"
+      ],
+      "stop_command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "E:\\AI\\LocalLLM\\stop-qwen38.ps1"
+      ],
+      "expected_ports": [
+        3000
+      ],
+      "url": "http://127.0.0.1:3000/",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "Qwen3.8",
+        "Open WebUI",
+        "本地模型",
+        "联网搜索"
+      ]
+    },
+    {
+      "id": "comfyui-hunyuan3d",
+      "name": "Hunyuan3D 3D 建模",
+      "process_label": "ComfyUI 3D 生成服务",
+      "description": "使用 ComfyUI 和 Hunyuan3D 2.1 从参考图片生成 3D 几何模型。",
+      "type": "command",
+      "working_directory": "E:\\AI\\ComfyUI-Hunyuan3D",
+      "command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-WindowStyle",
+        "Hidden",
+        "-File",
+        "E:\\AI\\ComfyUI-Hunyuan3D\\start-comfyui.ps1"
+      ],
+      "stop_command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "E:\\AI\\ComfyUI-Hunyuan3D\\stop-comfyui.ps1"
+      ],
+      "expected_ports": [
+        8189
+      ],
+      "url": "http://127.0.0.1:8189/",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "ComfyUI",
+        "Hunyuan3D",
+        "3D 建模",
+        "本地模型"
+      ]
+    },
+    {
+      "id": "fulian-conference-site",
+      "name": "福联会议网站",
+      "process_label": "展会网站服务",
+      "description": "[已归档] 2026年8月展会门票与报名网站，已交付宝塔上线，本地开发已结案。",
+      "type": "command",
+      "working_directory": "E:\\工程项目\\codex项目合集\\个人用\\cphi-china-express-ticket-clone",
+      "command": [
+        "C:\\Windows\\System32\\cmd.exe",
+        "/d",
+        "/c",
+        "npm.cmd",
+        "run",
+        "dev",
+        "--",
+        "--hostname",
+        "127.0.0.1",
+        "--port",
+        "4173"
+      ],
+      "expected_ports": [
+        4173
+      ],
+      "url": "http://127.0.0.1:4173/fulianhuiyi/",
+      "enabled": false,
+      "allow_stop": true,
+      "tags": [
+        "Next.js",
+        "展会",
+        "已归档"
+      ],
+      "stop_command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "E:\\工程项目\\codex项目合集\\个人用\\cphi-china-express-ticket-clone\\scripts\\stop-dev.ps1"
+      ]
+    },
+    {
+      "id": "ai-skills-console",
+      "name": "个人技能库",
+      "process_label": "技能管家后台",
+      "description": "看看每个技能能帮你干什么，按用途分类、收藏，并自动发现你新安装或创建的技能。",
+      "type": "command",
+      "working_directory": "D:\\AI-Skills",
+      "command": [
+        "C:\\Windows\\System32\\schtasks.exe",
+        "/Run",
+        "/TN",
+        "AI-Skills Web Console"
+      ],
+      "expected_ports": [
+        8765
+      ],
+      "url": "http://127.0.0.1:8787/skills",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "技能管理",
+        "自动发现",
+        "中文说明"
+      ],
+      "stop_command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "D:\\AI-Skills\\scripts\\stop-web-console.ps1"
+      ]
+    },
+    {
+      "id": "cli-proxy-api",
+      "name": "CLI Proxy API",
+      "process_label": "AI 接口代理服务",
+      "description": "为 Codex、Claude、Gemini 等 AI 工具提供统一兼容接口，并提供本机管理页面。",
+      "type": "command",
+      "working_directory": "C:\\Users\\win10\\Desktop\\CLIProxyAPI_7.0.2_windows_amd64",
+      "command": [
+        "C:\\Windows\\System32\\cmd.exe",
+        "/d",
+        "/c",
+        "C:\\Users\\win10\\Desktop\\CLIProxyAPI_7.0.2_windows_amd64\\start-cli-proxy-api.bat"
+      ],
+      "expected_ports": [
+        8317
+      ],
+      "url": "http://127.0.0.1:8317/management.html",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "AI",
+        "API 代理",
+        "Codex",
+        "Claude",
+        "Gemini"
+      ],
+      "stop_command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "C:\\Users\\win10\\Desktop\\CLIProxyAPI_7.0.2_windows_amd64\\stop-cli-proxy-api.ps1"
+      ]
+    },
+    {
+      "id": "money-printer-turbo",
+      "name": "AI 短视频生成",
+      "process_label": "短视频生成服务",
+      "description": "输入主题或关键词，自动生成脚本、匹配素材、制作字幕和背景音乐，并合成短视频。",
+      "type": "docker-compose",
+      "working_directory": "E:\\工程项目\\codex项目合集\\个人用\\MoneyPrinterTurbo",
+      "compose_file": "E:\\工程项目\\codex项目合集\\个人用\\MoneyPrinterTurbo\\docker-compose.release.yml",
+      "expected_ports": [
+        8501
+      ],
+      "url": "http://127.0.0.1:8501/",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "AI 视频",
+        "短视频",
+        "自动生成",
+        "Docker"
+      ]
+    },
+    {
+      "id": "auria-portfolio",
+      "name": "Auria AI 产品作品集",
+      "process_label": "个人作品集服务",
+      "description": "展示 AI 产品、自动化与知识系统项目，并提供数字分身和作品详情管理。",
+      "type": "command",
+      "working_directory": "E:\\工程项目\\codex项目合集\\个人用\\auria-local-migration-20260831-1017\\auria-website",
+      "command": [
+        "C:\\Users\\win10\\AppData\\Local\\AuriaRuntime\\node-v22.22.0-win-x64\\node.exe",
+        "--env-file-if-exists=.env",
+        "server/index.mjs"
+      ],
+      "environment": {
+        "PORT": "3101"
+      },
+      "expected_ports": [
+        3101
+      ],
+      "url": "http://127.0.0.1:3101/",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "个人网站",
+        "AI 产品",
+        "作品集",
+        "数字分身"
+      ],
+      "stop_command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "E:\\工程项目\\codex项目合集\\个人用\\auria-local-migration-20260831-1017\\auria-website\\scripts\\stop-portfolio.ps1"
+      ]
+    },
+    {
+      "id": "talkcraft-workbench",
+      "name": "TalkCraft 动效工作台",
+      "process_label": "动效工作台服务",
+      "description": "浏览和编辑视频动效卡片，预览效果并导出 Remotion 视频。",
+      "type": "command",
+      "working_directory": "C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\video-talkcraft\\workbench",
+      "command": [
+        "C:\\Windows\\System32\\cmd.exe",
+        "/d",
+        "/c",
+        "C:\\Users\\win10\\scoop\\apps\\nodejs\\current\\npm.cmd",
+        "run",
+        "dev",
+        "--",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "5199",
+        "--strictPort"
+      ],
+      "expected_ports": [
+        5199
+      ],
+      "url": "http://127.0.0.1:5199/",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "视频制作",
+        "动效",
+        "Remotion",
+        "TalkCraft"
+      ],
+      "stop_command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\video-talkcraft\\workbench\\scripts\\stop-workbench.ps1"
+      ]
+    },
+    {
+      "id": "lx-source-hub",
+      "name": "本机音源管家",
+      "process_label": "音源融合服务",
+      "description": "管理本机洛雪音源，提供融合音源下载、状态检查和故障切换。",
+      "type": "command",
+      "working_directory": "E:\\工程项目\\codex项目合集\\个人用\\lx-source-proof",
+      "command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-WindowStyle",
+        "Hidden",
+        "-File",
+        "E:\\工程项目\\codex项目合集\\个人用\\lx-source-proof\\start-hub.ps1"
+      ],
+      "expected_ports": [
+        18986
+      ],
+      "url": "http://127.0.0.1:18986/",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "音源管理",
+        "洛雪",
+        "故障切换",
+        "本机服务"
+      ],
+      "stop_command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "E:\\工程项目\\codex项目合集\\个人用\\lx-source-proof\\stop-hub.ps1"
+      ]
+    },
+    {
+      "id": "motionclone-local",
+      "name": "MotionClone 本地动效复刻",
+      "process_label": "动效复刻服务",
+      "description": "从参考视频生成可编辑的 HyperFrames/Remotion 动效项目，并支持本地预览、对比和导出。",
+      "type": "command",
+      "working_directory": "C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\MotionClone",
+      "command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-WindowStyle",
+        "Hidden",
+        "-File",
+        "C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\MotionClone\\start.ps1"
+      ],
+      "expected_ports": [
+        4319
+      ],
+      "url": "http://127.0.0.1:4319/",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "视频制作",
+        "动效复刻",
+        "HyperFrames",
+        "Remotion",
+        "本机服务"
+      ]
+    },
+    {
+      "id": "hypit-studio",
+      "name": "Hypit Studio 本地视频工作台",
+      "process_label": "Hypit Studio 服务",
+      "description": "[已归档] 功能已全面合流至 TalkCraft 动效工作台 (5199)，原 4938 独立端口已停用。",
+      "type": "command",
+      "working_directory": "D:\\AI-Projects\\hypit-test",
+      "command": [
+        "C:\\Users\\win10\\scoop\\apps\\nodejs\\current\\node.exe",
+        "D:\\AI-Projects\\hypit-test\\ui\\server.mjs"
+      ],
+      "expected_ports": [
+        4938
+      ],
+      "url": "http://127.0.0.1:4938/",
+      "enabled": false,
+      "allow_stop": true,
+      "tags": [
+        "视频制作",
+        "Hypit",
+        "已合流5199",
+        "已归档"
+      ]
+    },
+    {
+      "id": "video-farm",
+      "name": "Video Farm 首尾帧视频工坊",
+      "process_label": "视频工坊 Web 服务",
+      "description": "首尾帧视频工坊控制台，Google Flow 9:16 首尾帧生成与多账号调度系统。",
+      "type": "command",
+      "working_directory": "C:\\Users\\win10\\Documents\\ChatGPT\\视频制作",
+      "command": [
+        "C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\gflow-cli\\.venv\\Scripts\\python.exe",
+        "-m",
+        "video_farm.web",
+        "--port",
+        "8088"
+      ],
+      "expected_ports": [
+        8088
+      ],
+      "url": "http://127.0.0.1:8088/",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "AI视频",
+        "首尾帧",
+        "调度工坊"
+      ]
+    }
+  ]
+}

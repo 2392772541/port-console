@@ -1,0 +1,13 @@
+{
+  "id": "my-process-compose-project",
+  "name": "Process Compose 项目",
+  "description": "安装 Process Compose 后，可作为普通固定命令项目登记。",
+  "type": "command",
+  "working_directory": ".",
+  "command": ["process-compose", "up"],
+  "expected_ports": [5173],
+  "url": "http://127.0.0.1:5173",
+  "enabled": true,
+  "allow_stop": true,
+  "tags": ["Process Compose", "原生项目"]
+}
