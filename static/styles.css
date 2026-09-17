@@ -194,3 +194,22 @@ body{min-width:0;background:var(--bg);font-size:15px}.ambient{display:none}.side
 .archived-divider-card { grid-column: 1 / -1; margin-top: 14px; padding: 12px 18px; background: var(--surface-2); border: 1px dashed var(--line); border-radius: 12px; display: flex; align-items: center; justify-content: space-between; }
 .archived-divider-title { font-size: 14px; font-weight: 700; color: var(--muted); display: flex; align-items: center; gap: 12px; }
 .archived-hint { font-size: 12px; font-weight: 400; color: var(--muted); }
+
+.project-toolbar-actions { display: flex; align-items: center; gap: 8px; }
+.crash-alert { background: #fef2f2; color: #991b1b; border: 1px solid #fee2e2; border-radius: 6px; padding: 8px 12px; font-size: 13px; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
+.crash-title { font-weight: 600; }
+.crash-desc { font-size: 12px; opacity: 0.9; }
+.crash-action { margin-top: 4px; }
+.btn-sm { padding: 4px 8px !important; font-size: 12px !important; }
+
+.doctor-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.doctor-summary-card { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+.doctor-summary-card span { display: block; font-size: 12px; color: var(--muted); }
+.doctor-summary-card strong { font-size: 20px; font-weight: 700; color: var(--text); }
+.doctor-item-card { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin-bottom: 10px; }
+.doctor-item-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-weight: 600; }
+.doctor-check-row { display: flex; align-items: baseline; gap: 8px; font-size: 13px; margin: 4px 0; }
+.doctor-check-badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 600; }
+.doctor-check-badge.ok { background: #dcfce7; color: #166534; }
+.doctor-check-badge.error { background: #fee2e2; color: #991b1b; }
+.doctor-check-badge.warn { background: #fef3c7; color: #92400e; }

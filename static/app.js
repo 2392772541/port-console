@@ -227,6 +227,15 @@ function renderProjects() {
           <span class="drift-hint">服务已正常运行，无需同步即可使用；亦可一键保存为默认配置</span>
         </div>` : ''}
       ${project.path_exists === false ? `<div class="missing-alert">❌ 项目目录不存在：${escapeHtml(project.working_directory)}</div>` : ''}
+      ${project.last_crash ? `
+        <div class="crash-alert">
+          <div class="crash-title">⚠️ ${escapeHtml(project.last_crash.summary || "启动异常退出")}</div>
+          <div class="crash-desc">${escapeHtml(project.last_crash.suggestion || "")}</div>
+          ${project.last_crash.can_auto_repair ? `
+            <div class="crash-action">
+              <button class="button button-warn btn-sm project-repair" type="button" data-id="${escapeHtml(project.id)}" data-pkg="${escapeHtml(project.last_crash.package || "")}">🛠️ 一键自动修复依赖 (${escapeHtml(project.last_crash.package || "缺失模块")})</button>
+            </div>` : ''}
+        </div>` : ''}
       <div class="project-meta">
         <span>配置端口 ${project.expected_ports.length ? project.expected_ports.join(", ") : "未指定"}${project.port_drift && project.effective_port ? ` · 实际生效: ${project.effective_port}` : ''}</span>
         <span title="${escapeHtml(project.working_directory)}">${escapeHtml(project.working_directory)}</span>
@@ -263,6 +272,7 @@ function renderProjects() {
   $$(".project-archive").forEach((button) => button.addEventListener("click", () => runProjectAction(button.dataset.id, "archive", button)));
   $$(".project-restore").forEach((button) => button.addEventListener("click", () => runProjectAction(button.dataset.id, "restore", button)));
   $$(".project-delete").forEach((button) => button.addEventListener("click", () => runProjectAction(button.dataset.id, "delete", button)));
+  $$(".project-repair").forEach((button) => button.addEventListener("click", () => runProjectAction(button.dataset.id, "repair", button, { package: button.dataset.pkg })));
 }
 
 function renderCapabilities(capabilities = {}) {
@@ -317,6 +327,13 @@ async function runProjectAction(projectId, action, button, extraPayload = {}) {
     project.state = "starting";
     project.can_start = false;
   }
+  if (action === "repair") {
+    if (button) {
+      button.disabled = true;
+      button.textContent = "正在安装修复依赖…";
+    }
+    toast(`正在为“${project.name}”安装缺失依赖 (${extraPayload.package || ""})，请稍候...`);
+  }
   renderProjects();
 
   try {
@@ -343,8 +360,15 @@ async function runProjectAction(projectId, action, button, extraPayload = {}) {
       restore: "项目已恢复",
       delete: "项目配置已永久删除（已自动生成备份）",
       "sync-port": "端口配置已保存为默认",
+      repair: `依赖 ${extraPayload.package || ""} 修复完成！正在自动尝试启动项目...`,
     };
     toast(msgMap[action] || "操作成功");
+    if (action === "repair") {
+      setTimeout(() => {
+        const startBtn = document.querySelector(`.project-start[data-id="${projectId}"]`);
+        runProjectAction(projectId, "start", startBtn);
+      }, 600);
+    }
   } catch (error) {
     inFlightProjectActions.delete(projectId);
     startingTimestamps.delete(projectId);
@@ -409,8 +433,108 @@ $("#refreshActivity").addEventListener("click", () => loadActivity().catch((erro
 $("#portSearch").addEventListener("input", renderPorts);
 $("#scopeFilter").addEventListener("change", renderPorts);
 $("#projectSearch").addEventListener("input", renderProjects);
+
+async function openDoctorModal() {
+  const btn = $("#doctorBtn");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "体检中…";
+  }
+  try {
+    const data = await api("/api/doctor");
+    const rep = data.report;
+    const sum = rep.summary;
+    const content = $("#doctorContent");
+    content.innerHTML = `
+      <div class="doctor-summary-grid">
+        <div class="doctor-summary-card">
+          <span>登记项目</span>
+          <strong>${sum.total}</strong>
+        </div>
+        <div class="doctor-summary-card">
+          <span>健康正常</span>
+          <strong style="color: #166534;">${sum.healthy}</strong>
+        </div>
+        <div class="doctor-summary-card">
+          <span>目录失效</span>
+          <strong style="${sum.missing_paths > 0 ? 'color: #991b1b;' : ''}">${sum.missing_paths}</strong>
+        </div>
+        <div class="doctor-summary-card">
+          <span>端口漂移</span>
+          <strong style="${sum.drift_ports > 0 ? 'color: #92400e;' : ''}">${sum.drift_ports}</strong>
+        </div>
+        <div class="doctor-summary-card">
+          <span>端口冲突</span>
+          <strong style="${sum.port_conflicts > 0 ? 'color: #991b1b;' : ''}">${sum.port_conflicts}</strong>
+        </div>
+      </div>
+      <div class="doctor-projects-list">
+        ${rep.projects.map(p => `
+          <div class="doctor-item-card">
+            <div class="doctor-item-head">
+              <span>${escapeHtml(p.name)} ${p.enabled === false ? '<small class="muted">(已归档)</small>' : ''}</span>
+              <span class="doctor-check-badge ${p.healthy ? 'ok' : 'error'}">${p.healthy ? '✓ 健康' : '需处理'}</span>
+            </div>
+            ${p.checks.map(c => `
+              <div class="doctor-check-row">
+                <span class="doctor-check-badge ${c.level}">${c.level === 'info' || c.ok ? '正常' : (c.level === 'warn' ? '提示' : '异常')}</span>
+                <span style="font-weight: 500;">${escapeHtml(c.item)}:</span>
+                <span>${escapeHtml(c.message)}</span>
+                ${c.suggestion ? `<small class="muted">(${escapeHtml(c.suggestion)})</small>` : ''}
+                ${c.can_repair ? `<button class="button button-warn btn-sm doctor-repair-btn" style="margin-left:auto;" data-id="${escapeHtml(p.id)}" data-pkg="${escapeHtml(c.package || '')}">🛠️ 一键修复</button>` : ''}
+              </div>
+            `).join('')}
+          </div>
+        `).join('')}
+      </div>
+    `;
+    $$(".doctor-repair-btn").forEach(b => b.addEventListener("click", () => {
+      $("#doctorDialog").close();
+      runProjectAction(b.dataset.id, "repair", null, { package: b.dataset.pkg });
+    }));
+    $("#doctorDialog").showModal();
+  } catch (err) {
+    toast(`体检失败: ${err.message}`, true);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "🩺 环境体检";
+    }
+  }
+}
+
+async function reconcileStaleProjects() {
+  if (!window.confirm("确定自动扫描并归档所有路径失效/已搬家的项目吗？\n\n注意：此操作仅将目录不存在的项目移入【已归档】区域，立即释放端口，绝不物理删除任何文件，之后随时可以在下方归档区一键【恢复】。")) return;
+  const btn = $("#reconcileStaleBtn");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "扫描归档中…";
+  }
+  try {
+    const data = await api("/api/projects/reconcile-stale", { method: "POST" });
+    const count = data.result?.archived_count || 0;
+    if (count > 0) {
+      toast(`对账完成：已自动将 ${count} 个失效项目移入归档区`);
+    } else {
+      toast("对账完成：所有项目的工作目录均有效，无需归档");
+    }
+    await refreshAll(true);
+  } catch (err) {
+    toast(`自动归档失败: ${err.message}`, true);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "🧹 自动归档失效项";
+    }
+  }
+}
+
 $("#closeDialog").addEventListener("click", () => $("#detailDialog").close());
 $("#detailDialog").addEventListener("click", (event) => { if (event.target === $("#detailDialog")) $("#detailDialog").close(); });
+$("#closeDoctorDialog")?.addEventListener("click", () => $("#doctorDialog").close());
+$("#doctorDialog")?.addEventListener("click", (event) => { if (event.target === $("#doctorDialog")) $("#doctorDialog").close(); });
+$("#doctorBtn")?.addEventListener("click", openDoctorModal);
+$("#reconcileStaleBtn")?.addEventListener("click", reconcileStaleProjects);
 $$(".filter-chip").forEach((button) => button.addEventListener("click", () => {
   protocolFilter = button.dataset.protocol;
   $$(".filter-chip").forEach((item) => item.classList.toggle("active", item === button));

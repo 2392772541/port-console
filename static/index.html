@@ -143,6 +143,10 @@
             <span aria-hidden="true">⌕</span>
             <input id="projectSearch" type="search" placeholder="搜索项目、标签或端口">
           </label>
+          <div class="project-toolbar-actions">
+            <button id="doctorBtn" class="button button-ghost" type="button" title="一键全量体检项目运行环境与端口健康度">🩺 环境体检</button>
+            <button id="reconcileStaleBtn" class="button button-ghost" type="button" title="自动将目录不存在的失效项目移入归档区">🧹 自动归档失效项</button>
+          </div>
           <span id="projectCount" class="count-pill">0 个项目</span>
         </div>
 
@@ -173,6 +177,14 @@
       <button id="closeDialog" class="icon-button" type="button" aria-label="关闭">×</button>
     </div>
     <div id="detailContent" class="detail-content"></div>
+  </dialog>
+
+  <dialog id="doctorDialog">
+    <div class="dialog-head">
+      <div><p class="panel-kicker">HEALTH CHECK DOCTOR</p><h2 id="doctorTitle">🩺 系统环境体检报告</h2></div>
+      <button id="closeDoctorDialog" class="icon-button" type="button" aria-label="关闭">×</button>
+    </div>
+    <div id="doctorContent" class="detail-content" style="max-height: 70vh; overflow-y: auto;"></div>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>

@@ -35,6 +35,7 @@ PORT_CACHE_LOCK = threading.Lock()
 PORT_CACHE: dict[str, Any] = {"time": 0.0, "data": None}
 MANAGED_PROCESSES: dict[str, subprocess.Popen[Any]] = {}
 MANAGED_START_TIMES: dict[str, float] = {}
+PROJECT_CRASH_INFO: dict[str, dict[str, Any]] = {}
 
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
@@ -750,6 +751,7 @@ def project_state(
         "path_exists": path_exists,
         "managed_pid": pid,
         "can_start": bool(project["enabled"] and state not in ("running", "starting") and path_exists),
+        "last_crash": PROJECT_CRASH_INFO.get(project["id"]),
     })
     stoppable_owner = project["type"] != "command" or managed_running or bool(project.get("stop_command"))
     public["can_stop"] = bool(project["allow_stop"] and state in ("running", "starting") and stoppable_owner)
@@ -881,6 +883,311 @@ def sync_project_drift_port(project_id: str, target_port: int | None = None) -> 
     save_config_atomic(config)
     append_action(f"PROJECT sync_port id={project_id} old_ports={old_ports} new_ports={target['expected_ports']}")
     return {"id": project_id, "expected_ports": target["expected_ports"], "url": target.get("url")}
+
+
+
+COMMON_MODULE_TO_PACKAGE = {
+    "cv2": "opencv-python",
+    "PIL": "Pillow",
+    "yaml": "PyYAML",
+    "skimage": "scikit-image",
+    "sklearn": "scikit-learn",
+    "bs4": "beautifulsoup4",
+    "dotenv": "python-dotenv",
+    "dateutil": "python-dateutil",
+    "serial": "pyserial",
+    "fitz": "PyMuPDF",
+    "docx": "python-docx",
+    "pptx": "python-pptx",
+    "psutil": "psutil",
+}
+
+
+def analyze_crash_log(log_text: str) -> dict[str, Any]:
+    lines = [line.strip() for line in log_text.splitlines() if line.strip()]
+    last_lines = lines[-15:] if len(lines) >= 15 else lines
+    joined = "\n".join(last_lines)
+
+    m = re.search(r"ModuleNotFoundError:\s+No module named\s+['\"]([^'\"]+)['\"]", joined)
+    if m:
+        mod = m.group(1).split(".")[0]
+        pkg = COMMON_MODULE_TO_PACKAGE.get(mod, mod)
+        return {
+            "type": "missing_dependency",
+            "module": mod,
+            "package": pkg,
+            "summary": f"缺少 Python 依赖包: {pkg} (模块名: {mod})",
+            "suggestion": f"建议点击【一键安装依赖】安装 {pkg}",
+            "can_auto_repair": True,
+            "raw_log": joined,
+        }
+
+    m_imp = re.search(r"ImportError:\s+(?:cannot import name\s+['\"][^'\"]+['\"]\s+from\s+['\"]([^'\"]+)['\"]|(.*))", joined)
+    if m_imp:
+        mod = (m_imp.group(1) or m_imp.group(2) or "").split(".")[0]
+        pkg = COMMON_MODULE_TO_PACKAGE.get(mod, mod) if mod else ""
+        return {
+            "type": "import_error",
+            "module": mod,
+            "package": pkg,
+            "summary": f"模块导入错误: {joined.splitlines()[-1]}",
+            "suggestion": f"建议重新安装或更新依赖: {pkg or '对应依赖'}",
+            "can_auto_repair": bool(pkg),
+            "raw_log": joined,
+        }
+
+    if "address already in use" in joined.lower() or "winerror 10048" in joined.lower():
+        return {
+            "type": "port_conflict",
+            "summary": "端口冲突：目标端口已被其他进程占用",
+            "suggestion": "请在工作台中查看占用该端口的进程，或更改服务端口",
+            "can_auto_repair": False,
+            "raw_log": joined,
+        }
+
+    m_fnf = re.search(r"FileNotFoundError:\s+(.*)", joined)
+    if m_fnf:
+        return {
+            "type": "file_not_found",
+            "summary": f"关键文件缺失: {m_fnf.group(1)}",
+            "suggestion": "请检查工作目录或文件路径是否完整",
+            "can_auto_repair": False,
+            "raw_log": joined,
+        }
+
+    return {
+        "type": "unknown",
+        "summary": "进程启动后异常退出",
+        "suggestion": "请查看控制台输出定位原因",
+        "can_auto_repair": False,
+        "raw_log": joined,
+    }
+
+
+def repair_project_dependency(project_id: str, package: str | None = None) -> dict[str, Any]:
+    project = find_project(project_id)
+    cwd = Path(project["working_directory"]).resolve()
+    if not cwd.is_dir():
+        raise RuntimeError(f"工作目录不存在: {cwd}")
+
+    if not package:
+        crash = PROJECT_CRASH_INFO.get(project_id)
+        if crash and crash.get("package"):
+            package = crash["package"]
+        else:
+            log_path = LOG_DIR / f"project-{project_id}.log"
+            if log_path.exists():
+                text = log_path.read_text(encoding="utf-8", errors="replace")
+                analyzed = analyze_crash_log(text)
+                package = analyzed.get("package")
+
+    if not package:
+        raise ValueError("无法自动识别需要修复的依赖包名称，请指定包名")
+
+    command = project.get("command", [])
+    if not command:
+        raise RuntimeError("项目未配置启动命令，无法定位 Python 环境")
+
+    raw_exe = os.path.expandvars(os.path.expanduser(command[0]))
+    exe_path = Path(raw_exe)
+    if not exe_path.is_absolute():
+        exe_path = (cwd / exe_path).resolve()
+
+    if not exe_path.is_file():
+        candidates = [
+            cwd / ".venv" / "Scripts" / "python.exe",
+            cwd / "venv" / "Scripts" / "python.exe",
+            Path(sys.executable),
+        ]
+        found = False
+        for c in candidates:
+            if c.is_file():
+                exe_path = c
+                found = True
+                break
+        if not found:
+            raise RuntimeError(f"无法定位可用的 Python 解释器: {command[0]}")
+
+    append_action(f"REPAIR start project={project_id} package={package} exe={exe_path}")
+
+    uv_bin = shutil.which("uv")
+    if uv_bin:
+        cmd = [uv_bin, "pip", "install", "--python", str(exe_path), package]
+    else:
+        cmd = [str(exe_path), "-m", "pip", "install", package]
+
+    proc = subprocess.run(
+        cmd,
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=180,
+    )
+
+    if proc.returncode != 0:
+        err = proc.stderr.strip() or proc.stdout.strip() or "依赖安装失败"
+        append_action(f"REPAIR failed project={project_id} package={package} error={err[:100]}")
+        raise RuntimeError(f"安装依赖 {package} 失败:\n{err}")
+
+    PROJECT_CRASH_INFO.pop(project_id, None)
+    append_action(f"REPAIR success project={project_id} package={package}")
+    return {
+        "ok": True,
+        "project_id": project_id,
+        "package": package,
+        "message": f"成功为环境安装依赖包 {package}",
+    }
+
+
+def auto_archive_stale_projects() -> dict[str, Any]:
+    config = load_json(CONFIG_PATH, None)
+    if not isinstance(config, dict) or "projects" not in config:
+        raise RuntimeError("无法读取配置文件 projects.json")
+
+    archived_ids = []
+    for p in config.get("projects", []):
+        if not isinstance(p, dict):
+            continue
+        pid = p.get("id")
+        if pid == "port-atlas":
+            continue
+        if p.get("enabled", True):
+            wd = p.get("working_directory", "")
+            if wd and not Path(wd).exists():
+                p["enabled"] = False
+                tags = list(p.get("tags", []))
+                if "已归档" not in tags:
+                    tags.append("已归档")
+                p["tags"] = tags
+                archived_ids.append(pid)
+
+    if archived_ids:
+        save_config_atomic(config)
+        append_action(f"RECONCILE auto-archived {len(archived_ids)} projects: {', '.join(archived_ids)}")
+
+    return {
+        "ok": True,
+        "archived_count": len(archived_ids),
+        "archived_ids": archived_ids,
+    }
+
+
+def run_system_doctor() -> dict[str, Any]:
+    projects, _ = load_project_catalog()
+    ports_data = collect_ports()
+    tcp_items = [row for row in ports_data.get("items", []) if row.get("protocol") == "TCP"]
+    active_ports = {int(row["port"]) for row in tcp_items if row.get("port")}
+    proc_cache = build_process_cache(tcp_items)
+
+    items_report = []
+    healthy_count = 0
+    missing_count = 0
+    drift_count = 0
+    conflict_count = 0
+
+    for p in projects:
+        pid = p["id"]
+        name = p["name"]
+        enabled = p.get("enabled", True)
+        path_exists = p.get("path_exists", True)
+        wd = p.get("working_directory", "")
+
+        checks = []
+        project_ok = True
+
+        if not path_exists:
+            checks.append({
+                "item": "工作目录",
+                "ok": False,
+                "level": "error",
+                "message": f"目录已丢失或路径不存在: {wd}",
+                "suggestion": "建议点击【归档】以移出活动列表，或修正路径",
+            })
+            project_ok = False
+            missing_count += 1
+        else:
+            checks.append({"item": "工作目录", "ok": True, "level": "info", "message": "工作目录正常"})
+
+        if p.get("type") == "command" and p.get("command"):
+            raw_exe = os.path.expandvars(os.path.expanduser(p["command"][0]))
+            exe_p = Path(raw_exe)
+            if not exe_p.is_absolute() and path_exists:
+                exe_p = (Path(wd) / exe_p).resolve()
+            if not exe_p.is_file() and not shutil.which(p["command"][0]):
+                checks.append({
+                    "item": "启动程序",
+                    "ok": False,
+                    "level": "error",
+                    "message": f"找不到执行程序: {p['command'][0]}",
+                    "suggestion": "请检查该项目的 Python/虚拟环境是否配置正确",
+                })
+                project_ok = False
+            else:
+                checks.append({"item": "启动程序", "ok": True, "level": "info", "message": "启动程序有效"})
+
+        drift_ports = discover_project_drift_ports(p, tcp_items, projects, proc_cache)
+        expected_ports = p.get("expected_ports", [])
+        if drift_ports:
+            checks.append({
+                "item": "端口状态",
+                "ok": True,
+                "level": "warn",
+                "message": f"实际监听端口 [{', '.join(map(str, drift_ports))}] 已动态生效 (配置: {expected_ports})",
+                "suggestion": "运行正常；可按需保存为默认端口",
+            })
+            drift_count += 1
+        elif expected_ports:
+            st = project_state(p, active_ports, tcp_items, projects, proc_cache)
+            if st["state"] == "stopped":
+                for ep in expected_ports:
+                    if ep in active_ports:
+                        checks.append({
+                            "item": "端口占用",
+                            "ok": False,
+                            "level": "warn",
+                            "message": f"端口 {ep} 疑似被外部未关联程序占用",
+                            "suggestion": "启动前请确认是否有其它工具使用了该端口",
+                        })
+                        conflict_count += 1
+                        project_ok = False
+                        break
+
+        crash = PROJECT_CRASH_INFO.get(pid)
+        if crash:
+            checks.append({
+                "item": "运行自检",
+                "ok": False,
+                "level": "error",
+                "message": crash.get("summary", "最近一次启动异常退出"),
+                "suggestion": crash.get("suggestion", "请检查控制台日志"),
+                "can_repair": crash.get("can_auto_repair", False),
+                "package": crash.get("package"),
+            })
+            project_ok = False
+
+        if project_ok and enabled:
+            healthy_count += 1
+
+        items_report.append({
+            "id": pid,
+            "name": name,
+            "enabled": enabled,
+            "healthy": project_ok,
+            "checks": checks,
+        })
+
+    return {
+        "summary": {
+            "total": len(projects),
+            "healthy": healthy_count,
+            "missing_paths": missing_count,
+            "drift_ports": drift_count,
+            "port_conflicts": conflict_count,
+        },
+        "projects": items_report,
+    }
 
 
 def delete_project(project_id: str) -> dict[str, Any]:
@@ -1028,22 +1335,37 @@ def start_project(project: dict[str, Any]) -> dict[str, Any]:
     observed = False
     while project["expected_ports"] and time.monotonic() < deadline:
         if project_type == "command" and process.poll() is not None:
-            # 进程意外提前退出，提取日志末尾错误
+            # 进程意外提前退出，提取日志末尾错误并分析
             MANAGED_PROCESSES.pop(project["id"], None)
             MANAGED_START_TIMES.pop(project["id"], None)
             err_msg = ""
             if log_path.exists():
                 try:
-                    err_msg = "\n".join(log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-10:])
+                    err_msg = "\n".join(log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-15:])
                 except Exception:
                     pass
-            raise RuntimeError(f"进程启动后立即退出 (ExitCode: {process.returncode}):\n{err_msg or '请查看控制台日志'}")
+            crash = analyze_crash_log(err_msg)
+            PROJECT_CRASH_INFO[project["id"]] = crash
+            diag = crash.get("summary", "")
+            sugg = crash.get("suggestion", "")
+            raise RuntimeError(f"进程启动后立即退出 (ExitCode: {process.returncode}):\n【诊断】{diag}\n【建议】{sugg}\n{err_msg or '请查看控制台日志'}")
         time.sleep(0.3)
         PORT_CACHE["time"] = 0.0
-        if any(port in listening_ports() for port in project["expected_ports"]):
+        active = listening_ports()
+        if any(port in active for port in project["expected_ports"]):
             observed = True
             MANAGED_START_TIMES.pop(project["id"], None)
+            PROJECT_CRASH_INFO.pop(project["id"], None)
             break
+        if project_type == "command":
+            ports_data = collect_ports()
+            tcp_items = [row for row in ports_data.get("items", []) if row.get("protocol") == "TCP"]
+            drift = discover_project_drift_ports(project, tcp_items)
+            if drift:
+                observed = True
+                MANAGED_START_TIMES.pop(project["id"], None)
+                PROJECT_CRASH_INFO.pop(project["id"], None)
+                break
     if project["expected_ports"] and not observed:
         if project_type == "command" and process.poll() is not None:
             MANAGED_PROCESSES.pop(project["id"], None)
@@ -1051,10 +1373,14 @@ def start_project(project: dict[str, Any]) -> dict[str, Any]:
             err_msg = ""
             if log_path.exists():
                 try:
-                    err_msg = "\n".join(log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-10:])
+                    err_msg = "\n".join(log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-15:])
                 except Exception:
                     pass
-            raise RuntimeError(f"进程启动后退出 (ExitCode: {process.returncode}):\n{err_msg or '请查看控制台日志'}")
+            crash = analyze_crash_log(err_msg)
+            PROJECT_CRASH_INFO[project["id"]] = crash
+            diag = crash.get("summary", "")
+            sugg = crash.get("suggestion", "")
+            raise RuntimeError(f"进程启动后退出 (ExitCode: {process.returncode}):\n【诊断】{diag}\n【建议】{sugg}\n{err_msg or '请查看控制台日志'}")
     response["ports_observed"] = observed if project["expected_ports"] else None
     append_action(f"START completed project={project['id']} ok=true")
     return response
@@ -1290,6 +1616,19 @@ class Handler(BaseHTTPRequestHandler):
                     lines = ACTION_LOG.read_text(encoding="utf-8", errors="replace").splitlines()[-80:]
                 self.send_json({"ok": True, "items": lines})
                 return
+            if path == "/api/doctor":
+                self.send_json({"ok": True, "report": run_system_doctor()})
+                return
+            match_diag = re.fullmatch(r"/api/projects/([a-zA-Z0-9_.-]+)/diagnose", path)
+            if match_diag:
+                proj_id = match_diag.group(1)
+                report = run_system_doctor()
+                item = next((it for it in report["projects"] if it["id"] == proj_id), None)
+                if not item:
+                    self.send_json({"ok": False, "error": "项目不存在"}, HTTPStatus.NOT_FOUND)
+                else:
+                    self.send_json({"ok": True, "project": item})
+                return
             if path == "/":
                 self.send_static(STATIC_ROOT / "index.html")
                 return
@@ -1319,14 +1658,19 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, OSError) as exc:
                 self.send_json({'error': str(exc)}, 400)
             return
-        match = re.fullmatch(r"/api/projects/([a-zA-Z0-9_.-]+)/(start|stop|archive|restore|sync-port|delete)", parsed.path)
+        if parsed.path == "/api/projects/reconcile-stale":
+            with ACTION_LOCK:
+                result = auto_archive_stale_projects()
+            self.send_json({"ok": True, "result": result, "projects": catalog_payload()})
+            return
+        match = re.fullmatch(r"/api/projects/([a-zA-Z0-9_.-]+)/(start|stop|archive|restore|sync-port|delete|repair)", parsed.path)
         if not match:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         project_id = match.group(1)
         action = match.group(2)
         try:
-            payload = self.read_json() if action == "sync-port" else {}
+            payload = self.read_json() if action in ("sync-port", "repair") else {}
             with ACTION_LOCK:
                 if action == "start":
                     project = find_project(project_id)
@@ -1343,6 +1687,9 @@ class Handler(BaseHTTPRequestHandler):
                     result = sync_project_drift_port(project_id, target_port)
                 elif action == "delete":
                     result = delete_project(project_id)
+                elif action == "repair":
+                    target_pkg = payload.get("package") if isinstance(payload, dict) else None
+                    result = repair_project_dependency(project_id, target_pkg)
             self.send_json({"ok": True, "result": result, "projects": catalog_payload()})
         except KeyError as exc:
             self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.NOT_FOUND)

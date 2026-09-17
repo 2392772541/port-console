@@ -443,6 +443,73 @@ class DriftAndArchiveTests(unittest.TestCase):
                 self.assertEqual(len(saved["projects"]), 1)
                 self.assertEqual(saved["projects"][0]["id"], "port-atlas")
 
+
+    def test_analyze_crash_log(self) -> None:
+        log_mod = """Traceback (most recent call last):
+  File "E:\test\app.py", line 2, in <module>
+    import cv2
+ModuleNotFoundError: No module named 'cv2'
+"""
+        res = server.analyze_crash_log(log_mod)
+        self.assertEqual(res["type"], "missing_dependency")
+        self.assertEqual(res["module"], "cv2")
+        self.assertEqual(res["package"], "opencv-python")
+        self.assertTrue(res["can_auto_repair"])
+
+        log_port = """OSError: [WinError 10048] 通常每个套接字地址(协议/网络地址/端口)只允许使用一次。"""
+        res_port = server.analyze_crash_log(log_port)
+        self.assertEqual(res_port["type"], "port_conflict")
+        self.assertFalse(res_port["can_auto_repair"])
+
+    def test_auto_archive_stale_projects(self) -> None:
+        import tempfile, json
+        with tempfile.TemporaryDirectory() as directory:
+            cgg_path = Path(directory) / "projects.json"
+            cgg_data = {
+                "projects": [
+                    {
+                        "id": "port-atlas",
+                        "name": "Port Atlas",
+                        "working_directory": str(Path(directory) / "does_not_exist_1"),
+                        "enabled": True,
+                    },
+                    {
+                        "id": "stale-proj-1",
+                        "name": "Stale Project 1",
+                        "working_directory": str(Path(directory) / "does_not_exist_2"),
+                        "enabled": True,
+                        "tags": ["测试"],
+                    },
+                    {
+                        "id": "valid-proj",
+                        "name": "Valid Project",
+                        "working_directory": directory,
+                        "enabled": True,
+                    },
+                ]
+            }
+            cgg_path.write_text(json.dumps(cgg_data, ensure_ascii=False), encoding="utf-8")
+            from unittest.mock import patch
+            with patch.object(server, "CONFIG_PATH", cgg_path):
+                res = server.auto_archive_stale_projects()
+                self.assertEqual(res["archived_count"], 1)
+                self.assertEqual(res["archived_ids"], ["stale-proj-1"])
+                
+                saved = json.loads(cgg_path.read_text(encoding="utf-8"))
+                stale = next(p for p in saved["projects"] if p["id"] == "stale-proj-1")
+                self.assertFalse(stale["enabled"])
+                self.assertIn("已归档", stale["tags"])
+                
+                valid = next(p for p in saved["projects"] if p["id"] == "valid-proj")
+                self.assertTrue(valid["enabled"])
+
+    def test_system_doctor_endpoint(self) -> None:
+        report = server.run_system_doctor()
+        self.assertIn("summary", report)
+        self.assertIn("projects", report)
+        self.assertGreater(report["summary"]["total"], 0)
+
+
 if __name__ == "__main__":
 
     unittest.main()
