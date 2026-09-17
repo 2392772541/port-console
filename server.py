@@ -34,6 +34,7 @@ ACTION_LOCK = threading.Lock()
 PORT_CACHE_LOCK = threading.Lock()
 PORT_CACHE: dict[str, Any] = {"time": 0.0, "data": None}
 MANAGED_PROCESSES: dict[str, subprocess.Popen[Any]] = {}
+MANAGED_START_TIMES: dict[str, float] = {}
 
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
@@ -666,26 +667,39 @@ def project_state(
     drift_listening = bool(drift_ports)
     path_exists = project.get("path_exists", True)
 
+    start_time = MANAGED_START_TIMES.get(project["id"])
+    is_start_timeout = bool(start_time and (time.monotonic() - start_time > 30.0))
+
     if managed_running:
         if expected_listening or drift_listening:
             state = "running"
+            MANAGED_START_TIMES.pop(project["id"], None)
         elif project["expected_ports"]:
-            state = "starting"
+            if is_start_timeout:
+                state = "stopped"
+                MANAGED_START_TIMES.pop(project["id"], None)
+            else:
+                state = "starting"
         else:
             state = "running"
         pid = tracked.pid
     elif expected_listening or drift_listening:
         state = "running"
         pid = None
+        MANAGED_START_TIMES.pop(project["id"], None)
     elif not path_exists:
         state = "missing"
         pid = None
+        MANAGED_START_TIMES.pop(project["id"], None)
     elif tracked and tracked.poll() is not None:
         state = "stopped"
         pid = tracked.pid
+        MANAGED_PROCESSES.pop(project["id"], None)
+        MANAGED_START_TIMES.pop(project["id"], None)
     else:
         state = "stopped" if project["expected_ports"] else "unknown"
         pid = None
+        MANAGED_START_TIMES.pop(project["id"], None)
 
     if not project.get("enabled", True):
         lifecycle = "archived"
@@ -743,7 +757,9 @@ def project_state(
     if not project["allow_stop"]:
         reason = project.get("stop_disabled_reason") or "该项目尚未配置网页停止方式"
     elif state not in ("running", "starting"):
-        if state == "missing":
+        if is_start_timeout:
+            reason = "启动超时（30秒内未检测到监听端口），请检查日志或重试"
+        elif state == "missing":
             reason = "项目目录不存在，无法在此启动或停止"
         else:
             reason = "项目没有运行"
@@ -885,6 +901,8 @@ def delete_project(project_id: str) -> dict[str, Any]:
 
     deleted_item = config["projects"].pop(target_idx)
     save_config_atomic(config)
+    MANAGED_PROCESSES.pop(project_id, None)
+    MANAGED_START_TIMES.pop(project_id, None)
     append_action(f"PROJECT delete id={project_id} name={deleted_item.get('name')}")
     return {"id": project_id, "deleted": True, "name": deleted_item.get("name")}
 
@@ -954,7 +972,8 @@ def validate_command(command: list[str], cwd: Path) -> list[str]:
                 resolved = str(candidate)
             else:
                 raise RuntimeError(f"找不到启动程序：{executable}")
-    return [resolved, *command[1:]]
+    expanded_args = [os.path.expandvars(os.path.expanduser(arg)) for arg in command[1:]]
+    return [resolved, *expanded_args]
 
 
 def start_project(project: dict[str, Any]) -> dict[str, Any]:
@@ -1002,6 +1021,7 @@ def start_project(project: dict[str, Any]) -> dict[str, Any]:
         )
         log_handle.close()
         MANAGED_PROCESSES[project["id"]] = process
+        MANAGED_START_TIMES[project["id"]] = time.monotonic()
         response = {"ok": True, "pid": process.pid, "log": str(log_path)}
     PORT_CACHE["time"] = 0.0
     deadline = time.monotonic() + 8.0
@@ -1010,6 +1030,7 @@ def start_project(project: dict[str, Any]) -> dict[str, Any]:
         if project_type == "command" and process.poll() is not None:
             # 进程意外提前退出，提取日志末尾错误
             MANAGED_PROCESSES.pop(project["id"], None)
+            MANAGED_START_TIMES.pop(project["id"], None)
             err_msg = ""
             if log_path.exists():
                 try:
@@ -1021,7 +1042,19 @@ def start_project(project: dict[str, Any]) -> dict[str, Any]:
         PORT_CACHE["time"] = 0.0
         if any(port in listening_ports() for port in project["expected_ports"]):
             observed = True
+            MANAGED_START_TIMES.pop(project["id"], None)
             break
+    if project["expected_ports"] and not observed:
+        if project_type == "command" and process.poll() is not None:
+            MANAGED_PROCESSES.pop(project["id"], None)
+            MANAGED_START_TIMES.pop(project["id"], None)
+            err_msg = ""
+            if log_path.exists():
+                try:
+                    err_msg = "\n".join(log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-10:])
+                except Exception:
+                    pass
+            raise RuntimeError(f"进程启动后退出 (ExitCode: {process.returncode}):\n{err_msg or '请查看控制台日志'}")
     response["ports_observed"] = observed if project["expected_ports"] else None
     append_action(f"START completed project={project['id']} ok=true")
     return response
@@ -1112,6 +1145,7 @@ def stop_project(project: dict[str, Any]) -> dict[str, Any]:
         time.sleep(0.5)
         PORT_CACHE["time"] = 0.0
     MANAGED_PROCESSES.pop(project["id"], None)
+    MANAGED_START_TIMES.pop(project["id"], None)
     append_action(f"STOP completed project={project['id']} ok=true")
     return response
 

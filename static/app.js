@@ -8,6 +8,8 @@ let projects = [];
 let protocolFilter = "";
 let activeView = "ports";
 let refreshing = false;
+const inFlightProjectActions = new Map();
+const startingTimestamps = new Map();
 
 const pageTitles = {
   ports: "我的项目端口",
@@ -194,12 +196,20 @@ function renderProjects() {
     return;
   }
   const renderCard = (project) => {
-    const sLabel = stateLabel(project);
+    const inFlight = inFlightProjectActions.get(project.id);
+    const isStarting = project.state === "starting" || inFlight === "start";
+    const sLabel = stateLabel({ ...project, state: isStarting ? "starting" : project.state });
     const sClass = (project.enabled === false)
       ? "state-archived"
-      : (project.state === "running" ? "state-running" : (project.port_drift ? "state-starting" : `state-${project.state}`));
+      : (project.state === "running" ? "state-running" : ((project.port_drift || isStarting) ? "state-starting" : `state-${project.state}`));
     const isAtlas = project.id === "port-atlas";
     const targetUrl = project.effective_url || project.url;
+    const canStart = Boolean(project.can_start && !inFlight);
+    const canStop = Boolean(project.can_stop && inFlight !== "stop");
+    const startText = project.enabled === false
+      ? "已归档"
+      : (project.state === "running" ? "正在运行" : (isStarting ? "启动中…" : "启动项目"));
+    const stopText = inFlight === "stop" ? "停止中…" : "停止";
     return `
     <article class="project-card ${project.state} ${project.enabled === false ? 'archived' : ''}">
       <div class="project-card-head">
@@ -224,8 +234,8 @@ function renderProjects() {
       <div class="tag-row">${project.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>
       <div class="project-actions">
         ${targetUrl && project.enabled !== false ? `<a class="button button-ghost" href="${escapeHtml(targetUrl)}" target="_blank" rel="noreferrer">打开页面 ↗</a>` : ""}
-        <button class="button button-primary project-start" type="button" data-id="${escapeHtml(project.id)}" ${project.can_start ? "" : "disabled"}>${project.enabled === false ? "已归档" : (project.state === "running" ? "正在运行" : (project.state === "starting" ? "启动中…" : "启动项目"))}</button>
-        <button class="button button-danger project-stop" type="button" data-id="${escapeHtml(project.id)}" title="${escapeHtml(project.stop_reason || '停止这个项目')}" ${project.can_stop ? "" : "disabled"}>停止</button>
+        <button class="button button-primary project-start" type="button" data-id="${escapeHtml(project.id)}" ${canStart ? "" : "disabled"}>${escapeHtml(startText)}</button>
+        <button class="button button-danger project-stop" type="button" data-id="${escapeHtml(project.id)}" title="${escapeHtml(project.stop_reason || '停止这个项目')}" ${canStop ? "" : "disabled"}>${escapeHtml(stopText)}</button>
         ${project.port_drift && project.discovered_ports?.length ? `<button class="button button-warn project-sync-port" type="button" data-id="${escapeHtml(project.id)}" data-port="${project.discovered_ports[0]}">保存为默认端口 (${project.discovered_ports[0]})</button>` : ''}
         ${!isAtlas ? (project.enabled === false
           ? `<button class="button button-ghost project-restore" type="button" data-id="${escapeHtml(project.id)}">恢复</button>
@@ -251,8 +261,8 @@ function renderProjects() {
   $$(".project-stop").forEach((button) => button.addEventListener("click", () => runProjectAction(button.dataset.id, "stop", button)));
   $$(".project-sync-port").forEach((button) => button.addEventListener("click", () => runProjectAction(button.dataset.id, "sync-port", button, { port: Number(button.dataset.port) })));
   $$(".project-archive").forEach((button) => button.addEventListener("click", () => runProjectAction(button.dataset.id, "archive", button)));
-  $(".project-restore").forEach((button) => button.addEventListener("click", () => runProjectAction(button.dataset.id, "restore", button)));
-  $(".project-delete").forEach((button) => button.addEventListener("click", () => runProjectAction(button.dataset.id, "delete", button)));
+  $$(".project-restore").forEach((button) => button.addEventListener("click", () => runProjectAction(button.dataset.id, "restore", button)));
+  $$(".project-delete").forEach((button) => button.addEventListener("click", () => runProjectAction(button.dataset.id, "delete", button)));
 }
 
 function renderCapabilities(capabilities = {}) {
@@ -266,7 +276,23 @@ function renderCapabilities(capabilities = {}) {
 
 async function loadProjects() {
   const data = await api("/api/projects");
-  projects = data.items;
+  const now = Date.now();
+  projects = data.items.map((item) => {
+    const inFlight = inFlightProjectActions.get(item.id);
+    if (inFlight === "start" && item.state !== "running") {
+      return { ...item, state: "starting", can_start: false };
+    }
+    if (item.state === "starting") {
+      const startTime = startingTimestamps.get(item.id);
+      if (!startTime || (now - startTime > 15000)) {
+        startingTimestamps.delete(item.id);
+        return { ...item, state: "stopped", can_start: true };
+      }
+    } else if (item.state === "running" || item.state === "stopped") {
+      startingTimestamps.delete(item.id);
+    }
+    return item;
+  });
   renderCapabilities(data.capabilities);
   const errors = $("#projectErrors");
   if (data.errors.length) {
@@ -284,15 +310,27 @@ async function runProjectAction(projectId, action, button, extraPayload = {}) {
   if (action === "stop" && !window.confirm(`确定停止“${project.name}”吗？`)) return;
   if (action === "archive" && !window.confirm(`确定归档“${project.name}”吗？归档后不再出现在活动端口列表中。`)) return;
   if (action === "delete" && !window.confirm(`⚠️ 危险操作：确定要彻底删除已归档项目“${project.name}”的配置吗？\n\n删除后将从 projects.json 彻底移除（系统会自动保存带时间戳的备份文件）。此操作不可撤销。`)) return;
-  const oldText = button.textContent;
-  button.disabled = true;
-  button.textContent = action === "start" ? "启动中…" : (action === "stop" ? "停止中…" : "处理中…");
+
+  inFlightProjectActions.set(projectId, action);
+  if (action === "start") {
+    startingTimestamps.set(projectId, Date.now());
+    project.state = "starting";
+    project.can_start = false;
+  }
+  renderProjects();
+
   try {
     const data = await api(`/api/projects/${encodeURIComponent(projectId)}/${action}`, {
       method: "POST",
       body: JSON.stringify(extraPayload),
     });
     projects = data.projects.items;
+    if (action === "start") {
+      const updated = projects.find((item) => item.id === projectId);
+      if (updated && updated.state === "running") {
+        startingTimestamps.delete(projectId);
+      }
+    }
     renderProjects();
     await loadPorts(true);
     ports = buildProjectPorts();
@@ -308,10 +346,19 @@ async function runProjectAction(projectId, action, button, extraPayload = {}) {
     };
     toast(msgMap[action] || "操作成功");
   } catch (error) {
+    inFlightProjectActions.delete(projectId);
+    startingTimestamps.delete(projectId);
     toast(error.message, true);
-    button.disabled = false;
-    button.textContent = oldText;
+    const target = projects.find((item) => item.id === projectId);
+    if (target && action === "start") {
+      target.state = "stopped";
+      target.can_start = true;
+    }
+    renderProjects();
     await loadProjects().catch(() => {});
+  } finally {
+    inFlightProjectActions.delete(projectId);
+    renderProjects();
   }
 }
 
