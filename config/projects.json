@@ -161,91 +161,14 @@
         3000
       ],
       "url": "http://127.0.0.1:3000/",
-      "enabled": true,
+      "enabled": false,
       "allow_stop": true,
       "tags": [
         "Qwen3.8",
         "Open WebUI",
         "本地模型",
-        "联网搜索"
-      ]
-    },
-    {
-      "id": "comfyui-hunyuan3d",
-      "name": "Hunyuan3D 3D 建模",
-      "process_label": "ComfyUI 3D 生成服务",
-      "description": "使用 ComfyUI 和 Hunyuan3D 2.1 从参考图片生成 3D 几何模型。",
-      "type": "command",
-      "working_directory": "E:\\AI\\ComfyUI-Hunyuan3D",
-      "command": [
-        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-WindowStyle",
-        "Hidden",
-        "-File",
-        "E:\\AI\\ComfyUI-Hunyuan3D\\start-comfyui.ps1"
-      ],
-      "stop_command": [
-        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "E:\\AI\\ComfyUI-Hunyuan3D\\stop-comfyui.ps1"
-      ],
-      "expected_ports": [
-        8189
-      ],
-      "url": "http://127.0.0.1:8189/",
-      "enabled": true,
-      "allow_stop": true,
-      "tags": [
-        "ComfyUI",
-        "Hunyuan3D",
-        "3D 建模",
-        "本地模型"
-      ]
-    },
-    {
-      "id": "fulian-conference-site",
-      "name": "福联会议网站",
-      "process_label": "展会网站服务",
-      "description": "[已归档] 2026年8月展会门票与报名网站，已交付宝塔上线，本地开发已结案。",
-      "type": "command",
-      "working_directory": "E:\\工程项目\\codex项目合集\\个人用\\cphi-china-express-ticket-clone",
-      "command": [
-        "C:\\Windows\\System32\\cmd.exe",
-        "/d",
-        "/c",
-        "npm.cmd",
-        "run",
-        "dev",
-        "--",
-        "--hostname",
-        "127.0.0.1",
-        "--port",
-        "4173"
-      ],
-      "expected_ports": [
-        4173
-      ],
-      "url": "http://127.0.0.1:4173/fulianhuiyi/",
-      "enabled": false,
-      "allow_stop": true,
-      "tags": [
-        "Next.js",
-        "展会",
+        "联网搜索",
         "已归档"
-      ],
-      "stop_command": [
-        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "E:\\工程项目\\codex项目合集\\个人用\\cphi-china-express-ticket-clone\\scripts\\stop-dev.ps1"
       ]
     },
     {
@@ -325,6 +248,7 @@
       "working_directory": "E:\\工程项目\\codex项目合集\\个人用\\MoneyPrinterTurbo",
       "compose_file": "E:\\工程项目\\codex项目合集\\个人用\\MoneyPrinterTurbo\\docker-compose.release.yml",
       "expected_ports": [
+        8080,
         8501
       ],
       "url": "http://127.0.0.1:8501/",
@@ -532,6 +456,119 @@
         "AI视频",
         "首尾帧",
         "调度工坊"
+      ]
+    },
+    {
+      "id": "overlay-studio",
+      "name": "Overlay Studio 动效叠加工作台",
+      "process_label": "Overlay Studio 本地服务",
+      "description": "编辑、预览并导出透明背景的视频叠加动效，支持卡片编排和实际视频导出。",
+      "type": "command",
+      "working_directory": "D:\\overlay-studio\\motion-playground",
+      "command": [
+        "C:\\Windows\\System32\\cmd.exe",
+        "/d",
+        "/c",
+        "C:\\Users\\win10\\scoop\\apps\\nodejs\\current\\npm.cmd",
+        "run",
+        "dev",
+        "--",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "5177",
+        "--strictPort"
+      ],
+      "expected_ports": [
+        5177
+      ],
+      "url": "http://127.0.0.1:5177/",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "视频制作",
+        "动效叠加",
+        "透明视频",
+        "本机服务"
+      ],
+      "stop_command": [
+        "C:\\Windows\\System32\\cmd.exe",
+        "/d",
+        "/c",
+        "D:\\overlay-studio\\停止Overlay-Studio.bat"
+      ]
+    },
+    {
+      "id": "gemini-web2api",
+      "name": "Gemini Web2API",
+      "process_label": "Gemini 接口转换与清洗网关",
+      "description": "将 Gemini 网页端转换为兼容 OpenAI 标准格式的本地 API，并提供可视化 Web 管理面板。",
+      "type": "command",
+      "working_directory": "D:\\本地Codex对话\\个人知识系统\\gemini-web2api",
+      "command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "D:\\本地Codex对话\\个人知识系统\\gemini-web2api\\start-bg.ps1"
+      ],
+      "expected_ports": [
+        8083
+      ],
+      "url": "http://127.0.0.1:8083/admin",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "AI",
+        "API 代理",
+        "Gemini"
+      ],
+      "stop_command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "D:\\本地Codex对话\\个人知识系统\\gemini-web2api\\stop-bg.ps1"
+      ]
+    },
+    {
+      "id": "mediacrawler-comment",
+      "name": "媒体与评论采集中心",
+      "process_label": "评论采集控制台",
+      "description": "多平台（小红书、抖音、快手、B站、微博等）公开数据与评论采集控制中心，提供可视化 WebUI 与任务管理。",
+      "type": "command",
+      "working_directory": "E:\\app\\评论爬取",
+      "command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-WindowStyle",
+        "Hidden",
+        "-File",
+        "E:\\app\\评论爬取\\启动评论爬取WebUI.ps1"
+      ],
+      "expected_ports": [
+        8080
+      ],
+      "url": "http://127.0.0.1:8080/",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "爬虫",
+        "评论采集",
+        "多媒体",
+        "WebUI"
+      ],
+      "stop_command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "E:\\app\\评论爬取\\停止评论爬取WebUI.ps1"
       ]
     }
   ]
