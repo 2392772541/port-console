@@ -135,43 +135,6 @@
       ]
     },
     {
-      "id": "qwen-local-model",
-      "name": "Qwen 本地模型",
-      "process_label": "本地模型与聊天服务",
-      "description": "本机运行 Qwen3.8 模型，通过 Open WebUI 聊天，并支持 MiMo 联网搜索。",
-      "type": "command",
-      "working_directory": "E:\\AI\\LocalLLM",
-      "command": [
-        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "E:\\AI\\LocalLLM\\start-qwen38.ps1"
-      ],
-      "stop_command": [
-        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "E:\\AI\\LocalLLM\\stop-qwen38.ps1"
-      ],
-      "expected_ports": [
-        3000
-      ],
-      "url": "http://127.0.0.1:3000/",
-      "enabled": false,
-      "allow_stop": true,
-      "tags": [
-        "Qwen3.8",
-        "Open WebUI",
-        "本地模型",
-        "联网搜索",
-        "已归档"
-      ]
-    },
-    {
       "id": "ai-skills-console",
       "name": "个人技能库",
       "process_label": "技能管家后台",
@@ -409,30 +372,6 @@
       ]
     },
     {
-      "id": "hypit-studio",
-      "name": "Hypit Studio 本地视频工作台",
-      "process_label": "Hypit Studio 服务",
-      "description": "[已归档] 功能已全面合流至 TalkCraft 动效工作台 (5199)，原 4938 独立端口已停用。",
-      "type": "command",
-      "working_directory": "D:\\AI-Projects\\hypit-test",
-      "command": [
-        "C:\\Users\\win10\\scoop\\apps\\nodejs\\current\\node.exe",
-        "D:\\AI-Projects\\hypit-test\\ui\\server.mjs"
-      ],
-      "expected_ports": [
-        4938
-      ],
-      "url": "http://127.0.0.1:4938/",
-      "enabled": false,
-      "allow_stop": true,
-      "tags": [
-        "视频制作",
-        "Hypit",
-        "已合流5199",
-        "已归档"
-      ]
-    },
-    {
       "id": "video-farm",
       "name": "Video Farm 首尾帧视频工坊",
       "process_label": "视频工坊 Web 服务",
@@ -569,6 +508,45 @@
         "Bypass",
         "-File",
         "E:\\app\\评论爬取\\停止评论爬取WebUI.ps1"
+      ]
+    },
+    {
+      "id": "infinite-canvas",
+      "name": "无限画布 (Infinite Canvas)",
+      "process_label": "无限画布创作工作台",
+      "description": "面向 AI 视觉与图片创作的开源无限画布工作台，集成节点式编排、AI 图片生成与模型代理。",
+      "type": "command",
+      "working_directory": "D:\\AI-Projects\\infinite-canvas",
+      "command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-WindowStyle",
+        "Hidden",
+        "-File",
+        "D:\\AI-Projects\\infinite-canvas\\scripts\\start-canvas.ps1"
+      ],
+      "expected_ports": [
+        3000,
+        23210
+      ],
+      "url": "http://127.0.0.1:3000/",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "AI 绘图",
+        "无限画布",
+        "工作台",
+        "节点编排"
+      ],
+      "stop_command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "D:\\AI-Projects\\infinite-canvas\\scripts\\stop-canvas.ps1"
       ]
     }
   ]
