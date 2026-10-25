@@ -473,6 +473,41 @@
       ]
     },
     {
+      "id": "claude-switcher",
+      "name": "Claude 切换器",
+      "process_label": "环境管理与多账号切换",
+      "description": "Fail-Closed 账号环境管理与防封号工具，支持 14 项启动门禁检查、Claude Code 独立多账号隔离与断线保镖守护。",
+      "type": "command",
+      "working_directory": "C:\\Users\\win10\\.claude-switcher",
+      "command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "C:\\Users\\win10\\.claude-switcher\\SwitcherUI.ps1"
+      ],
+      "stop_command": [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "Get-Process | Where-Object { $_.MainWindowTitle -like '*Claude 账号切换器*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
+      ],
+      "expected_ports": [],
+      "url": "",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "AI",
+        "Claude",
+        "Claude Code",
+        "账号管理",
+        "安全代理"
+      ]
+    },
+    {
       "id": "mediacrawler-comment",
       "name": "媒体与评论采集中心",
       "process_label": "评论采集控制台",
