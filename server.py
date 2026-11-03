@@ -486,6 +486,7 @@ def is_owned_by_project(
     root: Path,
     project: dict[str, Any],
     all_projects: list[dict[str, Any]] | None = None,
+    strict_for_drift: bool = False,
 ) -> bool:
     managed = MANAGED_PROCESSES.get(project["id"])
     if managed and managed.poll() is None:
@@ -497,6 +498,27 @@ def is_owned_by_project(
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
 
+    orig_cmd = project.get("command") or []
+    cmd_tokens = [t for t in orig_cmd if t and not t.startswith("-") and not t.lower().endswith(".exe")]
+
+    try:
+        cmdline = process.cmdline()
+        if cmdline:
+            cmd_str = " ".join(cmdline)
+            root_str = str(root)
+            for tok in cmd_tokens:
+                if tok and tok in cmd_str:
+                    return True
+            for part in orig_cmd[1:]:
+                if any(part.lower().endswith(ext) for ext in [".py", ".ps1", ".bat", ".cmd", ".mjs", ".js"]):
+                    script_path = (root / part).resolve()
+                    if str(script_path) in cmd_str or os.path.normcase(str(script_path)) in os.path.normcase(cmd_str):
+                        return True
+            if not strict_for_drift and (root_str in cmd_str or os.path.normcase(root_str) in os.path.normcase(cmd_str)):
+                return True
+    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError, OSError):
+        pass
+
     try:
         exe = process.exe()
         if exe:
@@ -505,6 +527,9 @@ def is_owned_by_project(
                 return True
     except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError, OSError):
         pass
+
+    if strict_for_drift:
+        return False
 
     try:
         cwd = process.cwd()
@@ -518,22 +543,6 @@ def is_owned_by_project(
                             return False
             if cwd_path == root or cwd_path.is_relative_to(root) or os.path.normcase(str(cwd_path)).startswith(os.path.normcase(str(root))):
                 return True
-    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError, OSError):
-        pass
-
-    try:
-        cmdline = process.cmdline()
-        if cmdline:
-            cmd_str = " ".join(cmdline)
-            root_str = str(root)
-            if root_str in cmd_str or os.path.normcase(root_str) in os.path.normcase(cmd_str):
-                return True
-            orig_cmd = project.get("command") or []
-            for part in orig_cmd[1:]:
-                if any(part.lower().endswith(ext) for ext in [".py", ".ps1", ".bat", ".cmd", ".mjs", ".js"]):
-                    script_path = (root / part).resolve()
-                    if str(script_path) in cmd_str or os.path.normcase(str(script_path)) in os.path.normcase(cmd_str):
-                        return True
     except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError, OSError):
         pass
 
@@ -592,7 +601,7 @@ def discover_project_drift_ports(
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
         try:
-            if is_owned_by_project(proc, root, project, all_projects):
+            if is_owned_by_project(proc, root, project, all_projects, strict_for_drift=True):
                 for port in ports:
                     if port not in expected and port not in all_other_expected:
                         discovered.add(port)

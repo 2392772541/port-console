@@ -584,6 +584,33 @@
         "-File",
         "D:\\AI-Projects\\infinite-canvas\\scripts\\stop-canvas.ps1"
       ]
+    },
+    {
+      "id": "museflow-local-service",
+      "name": "MuseFlow 视频图像工作流",
+      "process_label": "MuseFlow本地服务",
+      "description": "本地独立运行的多模型视频与图像工作流引擎，支持多后端自由切换、分镜编排与流式视频拼接导出。",
+      "type": "command",
+      "working_directory": "E:\\工程项目\\codex项目合集\\museflow-local-service",
+      "command": [
+        "E:\\app\\Miniconda\\python.exe",
+        "server.py",
+        "--port",
+        "8788"
+      ],
+      "expected_ports": [
+        8788,
+        8766
+      ],
+      "url": "http://127.0.0.1:8788/",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "AI工具",
+        "视频制作",
+        "本机网页",
+        "MuseFlow"
+      ]
     }
   ]
 }
