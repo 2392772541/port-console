@@ -211,7 +211,6 @@
       "working_directory": "E:\\工程项目\\codex项目合集\\个人用\\MoneyPrinterTurbo",
       "compose_file": "E:\\工程项目\\codex项目合集\\个人用\\MoneyPrinterTurbo\\docker-compose.release.yml",
       "expected_ports": [
-        8080,
         8501
       ],
       "url": "http://127.0.0.1:8501/",
@@ -610,6 +609,170 @@
         "视频制作",
         "本机网页",
         "MuseFlow"
+      ]
+    },
+    {
+      "id": "opengym",
+      "name": "openGym 健身记录",
+      "process_label": "openGym 容器服务",
+      "description": "开源健身与体重追踪器，支持训练计划编排、动作记录与肌肉受力分析，提供本地 Web 界面。",
+      "type": "docker-compose",
+      "working_directory": "E:\\工程项目\\openGym",
+      "compose_file": "E:\\工程项目\\openGym\\docker-compose.yml",
+      "expected_ports": [
+        8080
+      ],
+      "url": "http://127.0.0.1:8080/",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "健身",
+        "运动记录",
+        "WebUI",
+        "Docker"
+      ]
+    },
+    {
+      "id": "media-monitor-workbench",
+      "name": "个人自媒体监控与发布工作台",
+      "process_label": "自媒体一体工作台",
+      "description": "一体化个人自媒体内容监控与多平台批量视频发布工作台，支持内容抓取、标题文案库管理、批量发布与随主服务自动启停发布引擎。",
+      "type": "command",
+      "working_directory": "E:\\\\工程项目\\\\codex项目合集\\\\个人用\\\\media-monitor-workbench",
+      "command": [
+        "C:\\\\Users\\\\win10\\\\scoop\\\\apps\\\\nodejs\\\\current\\\\node.exe",
+        "E:\\\\工程项目\\\\codex项目合集\\\\个人用\\\\media-monitor-workbench\\\\scripts\\\\start.mjs",
+        "--no-open"
+      ],
+      "expected_ports": [
+        18910,
+        5409
+      ],
+      "url": "http://127.0.0.1:18910/",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "自媒体",
+        "内容监控",
+        "视频发布",
+        "本地网页"
+      ],
+      "stop_command": [
+        "C:\\\\Users\\\\win10\\\\scoop\\\\apps\\\\nodejs\\\\current\\\\node.exe",
+        "E:\\\\工程项目\\\\codex项目合集\\\\个人用\\\\media-monitor-workbench\\\\scripts\\\\stop.mjs"
+      ]
+    },
+    {
+      "id": "antigravity-brain-visualizer",
+      "name": "Antigravity Brain Visualizer",
+      "process_label": "Brain Visualizer 后台",
+      "description": "可视化呈现 Antigravity 的思考图谱与执行流程，提供本地 Web 交互视图。",
+      "type": "command",
+      "working_directory": "E:\\工程项目\\antigravity-tools\\antigravity-brain-visualizer",
+      "command": [
+        "E:\\工程项目\\antigravity-tools\\antigravity-brain-visualizer\\agy-brain-viz.exe"
+      ],
+      "expected_ports": [
+        8080
+      ],
+      "url": "http://127.0.0.1:8080/",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "Antigravity",
+        "思维可视化",
+        "脑图",
+        "WebUI"
+      ],
+      "stop_command": [
+        "C:\\Windows\\System32\\cmd.exe",
+        "/c",
+        "taskkill",
+        "/IM",
+        "agy-brain-viz.exe",
+        "/F"
+      ]
+    },
+    {
+      "id": "freellmapi",
+      "name": "FreeLLMAPI 统一代理服务",
+      "process_label": "FreeLLMAPI 后台",
+      "description": "本地大模型聚合与转接服务，提供统一 OpenAI 兼容接口与本地管理控制台。",
+      "type": "command",
+      "working_directory": "E:\\工程项目\\codex项目合集\\个人用\\freellmapi",
+      "command": [
+        "C:\\Users\\win10\\scoop\\apps\\nodejs\\current\\node.exe",
+        "start-service.mjs"
+      ],
+      "stop_command": [
+        "C:\\Users\\win10\\scoop\\apps\\nodejs\\current\\node.exe",
+        "stop-service.mjs"
+      ],
+      "expected_ports": [
+        3001
+      ],
+      "url": "http://127.0.0.1:3001/",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "API代理",
+        "LLM",
+        "Node.js",
+        "网关"
+      ]
+    },
+    {
+      "id": "online-media-library",
+      "name": "农资短视频素材库",
+      "process_label": "素材库后台",
+      "description": "管理与检索农资短视频素材、切片及元数据，提供本地 Web 浏览与操作。",
+      "type": "command",
+      "working_directory": "E:\\公司素材\\网上素材\\_素材管理系统",
+      "command": [
+        "E:\\app\\Miniconda\\python.exe",
+        "run_server.py",
+        "--port",
+        "8866"
+      ],
+      "expected_ports": [
+        8866
+      ],
+      "url": "http://127.0.0.1:8866/",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "素材管理",
+        "短视频",
+        "农资",
+        "WebUI"
+      ]
+    },
+    {
+      "id": "meeting-media-library",
+      "name": "会议素材与关键帧管理系统",
+      "process_label": "关键帧管理后台",
+      "description": "管理会议视频录像、PPT课件与时间轴关键帧提取，提供可视化检索与打标。",
+      "type": "command",
+      "working_directory": "E:\\公司素材\\会议素材\\_素材库系统\\app",
+      "command": [
+        "E:\\app\\Miniconda\\python.exe",
+        "-X",
+        "utf8",
+        "server.py",
+        "--port",
+        "18765"
+      ],
+      "expected_ports": [
+        18765
+      ],
+      "url": "http://127.0.0.1:18765/",
+      "enabled": true,
+      "allow_stop": true,
+      "tags": [
+        "会议素材",
+        "关键帧",
+        "视频打标",
+        "WebUI"
       ]
     }
   ]

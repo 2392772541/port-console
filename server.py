@@ -6,7 +6,9 @@ import os
 import re
 import secrets
 import shutil
+import socket
 import subprocess
+import sys
 import threading
 import time
 import psutil
@@ -33,6 +35,10 @@ SESSION_TOKEN = secrets.token_urlsafe(32)
 ACTION_LOCK = threading.Lock()
 PORT_CACHE_LOCK = threading.Lock()
 PORT_CACHE: dict[str, Any] = {"time": 0.0, "data": None}
+SERVICE_CACHE_LOCK = threading.Lock()
+SERVICE_CACHE: dict[str, Any] = {"time": 0.0, "by_pid": {}}
+MANIFEST_CACHE_LOCK = threading.Lock()
+MANIFEST_CACHE: dict[tuple[Any, ...], tuple[float, list[Path]]] = {}
 MANAGED_PROCESSES: dict[str, subprocess.Popen[Any]] = {}
 MANAGED_START_TIMES: dict[str, float] = {}
 PROJECT_CRASH_INFO: dict[str, dict[str, Any]] = {}
@@ -124,13 +130,23 @@ IGNORED_SCAN_DIRS = {
     ".vscode",
     ".venv",
     "venv",
+    "env",
+    ".conda",
     "node_modules",
+    ".pnpm",
+    ".cache",
     "dist",
     "build",
+    "out",
+    "outputs",
     "target",
     "__pycache__",
     ".next",
     ".nuxt",
+    "vendor",
+    "models",
+    "checkpoints",
+    "_backups",
 }
 
 
@@ -276,31 +292,121 @@ def possible_web_url(row: dict[str, Any]) -> str | None:
     return f"{scheme}://{host}" if default_port else f"{scheme}://{host}:{port}"
 
 
+def _collect_services_by_pid(target_pids: set[int]) -> dict[int, list[dict[str, Any]]]:
+    """按进程 PID 获取关联的 Windows 服务列表，仅对目标监听 PID 查询属性以降低 SCM 句柄开销。"""
+    if os.name != "nt" or not target_pids or not hasattr(psutil, "win_service_iter"):
+        return {}
+    now_mono = time.monotonic()
+    with SERVICE_CACHE_LOCK:
+        cached: dict[int, list[dict[str, Any]]] = SERVICE_CACHE["by_pid"]
+        if SERVICE_CACHE["time"] > 0 and now_mono - SERVICE_CACHE["time"] < 45.0:
+            missing = [pid for pid in target_pids if pid not in cached]
+            if not missing:
+                return {pid: cached[pid] for pid in target_pids if cached.get(pid)}
+        by_pid: dict[int, list[dict[str, Any]]] = {pid: [] for pid in target_pids}
+        try:
+            for svc in psutil.win_service_iter():
+                try:
+                    spid = svc.pid()
+                    if spid and int(spid) in target_pids:
+                        by_pid.setdefault(int(spid), []).append({
+                            "name": str(svc.name() or ""),
+                            "display_name": str(svc.display_name() or ""),
+                            "state": str(svc.status() or ""),
+                            "start_mode": str(svc.start_type() or ""),
+                        })
+                except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+                    continue
+        except OSError:
+            return {}
+        SERVICE_CACHE["time"] = now_mono
+        SERVICE_CACHE["by_pid"] = {**cached, **by_pid}
+        return {pid: by_pid[pid] for pid in target_pids if by_pid.get(pid)}
+
+
+def _collect_ports_via_psutil() -> list[dict[str, Any]]:
+    """优先使用 psutil 进程内直接读取本机监听套接字，将单次扫描从秒级降至毫秒级。"""
+    connections = psutil.net_connections(kind="inet")
+    raw_entries: list[tuple[str, str, int, int, str]] = []
+    pids: set[int] = set()
+    for conn in connections:
+        if not conn.laddr:
+            continue
+        address = str(conn.laddr.ip or "")
+        port = int(conn.laddr.port or 0)
+        if port <= 0:
+            continue
+        pid = int(conn.pid or 0)
+        if conn.type == socket.SOCK_STREAM:
+            if conn.status != psutil.CONN_LISTEN:
+                continue
+            protocol, state = "TCP", "Listen"
+        elif conn.type == socket.SOCK_DGRAM:
+            protocol, state = "UDP", "Bound"
+        else:
+            continue
+        raw_entries.append((protocol, address, port, pid, state))
+        if pid > 0:
+            pids.add(pid)
+
+    proc_map: dict[int, tuple[str, str]] = {}
+    for pid in pids:
+        try:
+            proc = psutil.Process(pid)
+            pname = str(proc.name() or "")
+            try:
+                pexe = str(proc.exe() or "")
+            except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
+                pexe = ""
+            proc_map[pid] = (pname, pexe)
+        except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+            proc_map[pid] = ("", "")
+
+    svc_map = _collect_services_by_pid(pids)
+    rows: list[dict[str, Any]] = []
+    for protocol, address, port, pid, state in raw_entries:
+        pname, pexe = proc_map.get(pid, ("", ""))
+        rows.append({
+            "protocol": protocol,
+            "address": address,
+            "port": port,
+            "pid": pid,
+            "process": pname,
+            "executable": pexe,
+            "services": svc_map.get(pid, []),
+            "state": state,
+        })
+    return rows
+
+
 def collect_ports_uncached() -> dict[str, Any]:
     started = time.monotonic()
-    command = [
-        powershell_executable(),
-        "-NoLogo",
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        PORT_QUERY_PS,
-    ]
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=20,
-        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError(completed.stderr.strip() or "PowerShell 端口读取失败")
-    raw = completed.stdout.strip()
-    rows = json.loads(raw) if raw else []
-    if isinstance(rows, dict):
-        rows = [rows]
+    rows: list[dict[str, Any]]
+    try:
+        rows = _collect_ports_via_psutil()
+    except Exception:
+        command = [
+            powershell_executable(),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            PORT_QUERY_PS,
+        ]
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=20,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(completed.stderr.strip() or "PowerShell 端口读取失败")
+        raw = completed.stdout.strip()
+        parsed_rows = json.loads(raw) if raw else []
+        rows = [parsed_rows] if isinstance(parsed_rows, dict) else parsed_rows
     normalized: list[dict[str, Any]] = []
     seen: set[tuple[Any, ...]] = set()
     for item in rows:
@@ -431,7 +537,14 @@ def normalize_project(raw: dict[str, Any], source: Path) -> dict[str, Any]:
     return project
 
 
-def discover_manifests(scan_roots: list[str], max_depth: int = 4) -> list[Path]:
+def discover_manifests(scan_roots: list[str], max_depth: int = 4, use_cache: bool = False) -> list[Path]:
+    cache_key = (tuple(str(normalized_path(r)) for r in scan_roots), max_depth)
+    if use_cache:
+        with MANIFEST_CACHE_LOCK:
+            hit = MANIFEST_CACHE.get(cache_key)
+            if hit and time.monotonic() - hit[0] < 60.0:
+                return list(hit[1])
+
     manifests: list[Path] = []
     for root_text in scan_roots:
         root = normalized_path(root_text)
@@ -441,11 +554,17 @@ def discover_manifests(scan_roots: list[str], max_depth: int = 4) -> list[Path]:
         for current, dirs, files in os.walk(root):
             current_path = Path(current)
             depth = len(current_path.parts) - root_depth
-            dirs[:] = [name for name in dirs if name not in IGNORED_SCAN_DIRS and depth < max_depth]
+            dirs[:] = [name for name in dirs if name not in IGNORED_SCAN_DIRS and not name.startswith(".") and depth < max_depth]
             if "port-console.project.json" in files:
                 manifests.append(current_path / "port-console.project.json")
-            if len(manifests) >= 250:
-                return manifests
+                if len(manifests) >= 250:
+                    break
+        if len(manifests) >= 250:
+            break
+
+    if use_cache:
+        with MANIFEST_CACHE_LOCK:
+            MANIFEST_CACHE[cache_key] = (time.monotonic(), list(manifests))
     return manifests
 
 
@@ -457,7 +576,7 @@ def load_project_catalog() -> tuple[list[dict[str, Any]], list[str]]:
     sources: list[tuple[dict[str, Any], Path]] = [
         (raw, CONFIG_PATH) for raw in config.get("projects", []) if isinstance(raw, dict)
     ]
-    for manifest in discover_manifests([str(item) for item in config.get("scan_roots", [])]):
+    for manifest in discover_manifests([str(item) for item in config.get("scan_roots", [])], use_cache=True):
         data = load_json(manifest, None)
         if isinstance(data, dict):
             sources.append((data, manifest))
@@ -481,89 +600,320 @@ def listening_ports() -> set[int]:
     return {int(row["port"]) for row in collect_ports().get("items", []) if row["protocol"] == "TCP"}
 
 
+GENERIC_RUNNER_EXES = {
+    "python", "python.exe", "pythonw", "pythonw.exe",
+    "node", "node.exe", "cmd", "cmd.exe",
+    "powershell", "powershell.exe", "pwsh", "pwsh.exe",
+    "npm", "npm.cmd", "npx", "npx.cmd", "pnpm", "pnpm.cmd", "yarn", "yarn.cmd",
+    "uv", "uv.exe", "schtasks", "schtasks.exe",
+}
+
+SIDECAR_PROCESS_EXES = {
+    "cloudflared.exe", "ngrok.exe", "frpc.exe", "tunnel-client.exe",
+    "language_server.exe", "code.exe", "antigravity.exe",
+}
+
+SCRIPT_EXTENSIONS = (".py", ".ps1", ".bat", ".cmd", ".mjs", ".js", ".cjs", ".ts", ".yaml", ".yml")
+
+
+def _is_claimed_by_deeper_project(
+    target_path: Path,
+    root: Path,
+    project_id: str,
+    all_projects: list[dict[str, Any]] | None,
+) -> bool:
+    """当父目录与子目录同时登记为不同项目时，子目录内的进程归属子项目而非父项目。"""
+    if not all_projects:
+        return False
+    for other in all_projects:
+        if other["id"] == project_id:
+            continue
+        try:
+            other_root = Path(other["working_directory"]).resolve()
+            if len(other_root.parts) > len(root.parts) and (target_path == other_root or target_path.is_relative_to(other_root)):
+                return True
+        except (ValueError, OSError):
+            continue
+    return False
+
+
+def _path_within_root(target_path: Path, root: Path) -> bool:
+    try:
+        if target_path == root or target_path.is_relative_to(root):
+            return True
+    except ValueError:
+        pass
+    norm_target = os.path.normcase(str(target_path)).rstrip("\\/")
+    norm_root = os.path.normcase(str(root)).rstrip("\\/")
+    return norm_target == norm_root or norm_target.startswith(norm_root + os.sep)
+
+
+def _extract_entry_signatures(orig_cmd: list[str], root: Path) -> tuple[list[Path], list[str]]:
+    """提取启动命令中真正具备项目身份特征的入口脚本路径与 Python -m 模块名，剔除 /c、run、127.0.0.1 等通用词。"""
+    script_paths: list[Path] = []
+    module_names: list[str] = []
+    generic_modules = {"pip", "venv", "unittest", "http.server", " npm", "npx"}
+
+    for idx, part in enumerate(orig_cmd[1:], start=1):
+        if not part or part.startswith("-") or part.startswith("/"):
+            continue
+        prev = orig_cmd[idx - 1]
+        if prev == "-m" and part.lower() not in generic_modules:
+            module_names.append(part)
+            continue
+        lower = part.lower()
+        base_name = Path(part).name.lower()
+        if base_name in GENERIC_RUNNER_EXES:
+            continue
+        if lower.endswith(SCRIPT_EXTENSIONS):
+            try:
+                candidate = Path(os.path.expandvars(os.path.expanduser(part)))
+                resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+                script_paths.append(resolved)
+            except (ValueError, OSError):
+                continue
+    return script_paths, module_names
+
+
 def is_owned_by_project(
     process: psutil.Process,
     root: Path,
     project: dict[str, Any],
     all_projects: list[dict[str, Any]] | None = None,
     strict_for_drift: bool = False,
+    proc_meta: dict[str, Any] | None = None,
 ) -> bool:
+    if project.get("id") == "port-atlas" and process.pid == os.getpid():
+        return True
+
     managed = MANAGED_PROCESSES.get(project["id"])
     if managed and managed.poll() is None:
         if process.pid == managed.pid:
             return True
-        try:
-            if managed.pid in {p.pid for p in process.parents()}:
+        if proc_meta and "parent_pids" in proc_meta:
+            if managed.pid in proc_meta["parent_pids"]:
                 return True
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+        else:
+            try:
+                if managed.pid in {p.pid for p in process.parents()}:
+                    return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
 
     orig_cmd = project.get("command") or []
-    cmd_tokens = [t for t in orig_cmd if t and not t.startswith("-") and not t.lower().endswith(".exe")]
+    cmd_exe_name = Path(orig_cmd[0]).name.lower() if orig_cmd else ""
+    if proc_meta is not None and "name" in proc_meta:
+        proc_name = str(proc_meta["name"] or "").lower()
+    else:
+        try:
+            proc_name = (process.name() or "").lower()
+        except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+            proc_name = ""
 
-    try:
-        cmdline = process.cmdline()
-        if cmdline:
-            cmd_str = " ".join(cmdline)
-            root_str = str(root)
-            for tok in cmd_tokens:
-                if tok and tok in cmd_str:
-                    return True
-            for part in orig_cmd[1:]:
-                if any(part.lower().endswith(ext) for ext in [".py", ".ps1", ".bat", ".cmd", ".mjs", ".js"]):
-                    script_path = (root / part).resolve()
-                    if str(script_path) in cmd_str or os.path.normcase(str(script_path)) in os.path.normcase(cmd_str):
-                        return True
-            if not strict_for_drift and (root_str in cmd_str or os.path.normcase(root_str) in os.path.normcase(cmd_str)):
-                return True
-    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError, OSError):
-        pass
-
-    try:
-        exe = process.exe()
-        if exe:
-            exe_path = Path(exe).resolve()
-            if exe_path.is_relative_to(root) or os.path.normcase(str(exe_path)).startswith(os.path.normcase(str(root))):
-                return True
-    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError, OSError):
-        pass
-
-    if strict_for_drift:
+    # 严格漂移探测时排除隧道客户端与 IDE 语言服务等非项目主服务进程
+    if strict_for_drift and proc_name in SIDECAR_PROCESS_EXES and proc_name != cmd_exe_name:
         return False
 
-    try:
-        cwd = process.cwd()
-        if cwd:
-            cwd_path = Path(cwd).resolve()
-            if all_projects:
-                for other in all_projects:
-                    if other["id"] != project["id"]:
-                        other_root = Path(other["working_directory"]).resolve()
-                        if len(other_root.parts) > len(root.parts) and (cwd_path == other_root or cwd_path.is_relative_to(other_root)):
-                            return False
-            if cwd_path == root or cwd_path.is_relative_to(root) or os.path.normcase(str(cwd_path)).startswith(os.path.normcase(str(root))):
+    script_paths, module_names = _extract_entry_signatures(orig_cmd, root)
+
+    if proc_meta is not None and "cmdline" in proc_meta:
+        cmdline = proc_meta["cmdline"] or []
+    else:
+        try:
+            cmdline = process.cmdline() or []
+        except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError, OSError):
+            cmdline = []
+
+    if cmdline:
+        cmd_norm = os.path.normcase(" ".join(cmdline))
+        norm_args = [os.path.normcase(arg.strip("\"'")) for arg in cmdline if arg]
+        # 1. 精确匹配入口脚本绝对路径
+        for sp in script_paths:
+            sp_norm = os.path.normcase(str(sp))
+            if sp_norm in norm_args or sp_norm in cmd_norm:
+                if not _is_claimed_by_deeper_project(sp, root, project["id"], all_projects):
+                    return True
+        # 2. 精确匹配 Python -m 业务模块名
+        for mod in module_names:
+            if mod in cmdline:
                 return True
-    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError, OSError):
-        pass
+        # 3. 非漂移严格模式下，若命令行参数直接引用了项目根目录下的文件则视为归属
+        if not strict_for_drift:
+            root_norm = os.path.normcase(str(root)).rstrip("\\/")
+            if any(arg == root_norm or arg.startswith(root_norm + os.sep) for arg in norm_args):
+                return True
+
+    exe: str = ""
+    if proc_meta is not None and "exe" in proc_meta:
+        exe = str(proc_meta["exe"] or "")
+    else:
+        try:
+            exe = process.exe() or ""
+        except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError, OSError):
+            exe = ""
+    if exe:
+        try:
+            exe_path = Path(exe).resolve()
+            if _path_within_root(exe_path, root) and not _is_claimed_by_deeper_project(exe_path, root, project["id"], all_projects):
+                if not strict_for_drift or exe_path.name.lower() not in GENERIC_RUNNER_EXES or not module_names:
+                    return True
+        except (ValueError, OSError):
+            pass
+
+    cwd: str = ""
+    if proc_meta is not None and "cwd" in proc_meta:
+        cwd = str(proc_meta["cwd"] or "")
+    else:
+        try:
+            cwd = process.cwd() or ""
+        except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError, OSError):
+            cwd = ""
+    if cwd:
+        try:
+            cwd_path = Path(cwd).resolve()
+            if _path_within_root(cwd_path, root) and not _is_claimed_by_deeper_project(cwd_path, root, project["id"], all_projects):
+                if not strict_for_drift:
+                    return True
+                uses_wrapper = any(str(p).lower().endswith((".ps1", ".bat", ".cmd")) for p in script_paths)
+                strict_port_locked = "--strictPort" in orig_cmd
+                if uses_wrapper and not strict_port_locked and proc_name in {"python.exe", "pythonw.exe", "node.exe", "uvicorn.exe"}:
+                    return True
+        except (ValueError, OSError):
+            pass
 
     return False
 
 
 def build_process_cache(tcp_items: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
-    protected = {os.getpid(), 0, 4, *(p.pid for p in psutil.Process().parents())}
-    pids = {row.get("pid") for row in tcp_items if row.get("pid") and row["pid"] not in protected}
+    protected = {0, 4}
+    pids = {int(row.get("pid") or 0) for row in tcp_items if row.get("pid") and int(row["pid"]) not in protected}
+    row_hints: dict[int, tuple[str, str]] = {}
+    for row in tcp_items:
+        rpid = int(row.get("pid") or 0)
+        if rpid > 0 and rpid not in row_hints:
+            row_hints[rpid] = (str(row.get("process") or ""), str(row.get("executable") or ""))
+
     cache: dict[int, dict[str, Any]] = {}
+    need_parents = bool(MANAGED_PROCESSES)
     for pid in pids:
         try:
             p = psutil.Process(pid)
+            hint_name, hint_exe = row_hints.get(pid, ("", ""))
+            if not hint_name:
+                try:
+                    hint_name = p.name()
+                except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
+                    hint_name = ""
+            if not hint_exe:
+                try:
+                    hint_exe = p.exe()
+                except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
+                    hint_exe = ""
+            try:
+                cwd = p.cwd()
+            except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
+                cwd = ""
+            try:
+                cmdline = p.cmdline()
+            except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
+                cmdline = []
+            parent_pids: set[int] = set()
+            if need_parents:
+                try:
+                    parent_pids = {pp.pid for pp in p.parents()}
+                except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
+                    parent_pids = set()
             cache[pid] = {
                 "process": p,
-                "cwd": p.cwd(),
-                "cmdline": p.cmdline(),
+                "name": hint_name,
+                "exe": hint_exe,
+                "cwd": cwd,
+                "cmdline": cmdline,
+                "parent_pids": parent_pids,
             }
         except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError, OSError):
             continue
     return cache
+
+
+def _inspect_expected_port_ownership(
+    project: dict[str, Any],
+    tcp_items: list[dict[str, Any]],
+    all_projects: list[dict[str, Any]] | None = None,
+    proc_cache: dict[int, dict[str, Any]] | None = None,
+) -> tuple[list[int], list[dict[str, Any]]]:
+    """核查项目配置端口上的监听进程归属，返回 (确认归属本项目的端口列表, 外部占用冲突列表)。"""
+    expected = project.get("expected_ports") or []
+    if not expected:
+        return [], []
+    root = Path(project["working_directory"]).resolve()
+    owned_ports: list[int] = []
+    conflicts: list[dict[str, Any]] = []
+
+    for ep in expected:
+        rows = [r for r in tcp_items if int(r.get("port") or 0) == ep]
+        if not rows:
+            continue
+        if project.get("type") in {"docker-compose", "windows-service"}:
+            owned_ports.append(ep)
+            continue
+        if project.get("id") == "port-atlas" and any(int(r.get("pid") or 0) == os.getpid() for r in rows):
+            owned_ports.append(ep)
+            continue
+
+        port_owned = False
+        foreign_detail: dict[str, Any] | None = None
+        for row in rows:
+            pid = int(row.get("pid") or 0)
+            if pid <= 0:
+                continue
+            proc_entry = proc_cache.get(pid) if proc_cache is not None else None
+            proc = proc_entry["process"] if proc_entry else None
+            if proc is None and proc_cache is None:
+                try:
+                    proc = psutil.Process(pid)
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    proc = None
+            if proc is not None:
+                try:
+                    if is_owned_by_project(proc, root, project, all_projects, strict_for_drift=False, proc_meta=proc_entry):
+                        port_owned = True
+                        break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+            if foreign_detail is None:
+                cwd_val = proc_entry.get("cwd", "") if proc_entry else ""
+                if not cwd_val and proc is not None and proc_cache is None:
+                    try:
+                        cwd_val = proc.cwd()
+                    except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+                        cwd_val = ""
+                foreign_detail = {
+                    "port": ep,
+                    "pid": pid,
+                    "process": str(row.get("process") or "<unknown>"),
+                    "executable": str(row.get("executable") or ""),
+                    "cwd": cwd_val,
+                }
+        if port_owned:
+            owned_ports.append(ep)
+        elif foreign_detail is not None:
+            conflicts.append(foreign_detail)
+
+    return owned_ports, conflicts
+
+
+_PROTECTED_BASE_PIDS: set[int] | None = None
+
+
+def _get_protected_pids() -> set[int]:
+    global _PROTECTED_BASE_PIDS
+    if _PROTECTED_BASE_PIDS is None:
+        try:
+            _PROTECTED_BASE_PIDS = {os.getpid(), 0, 4, *(p.pid for p in psutil.Process().parents())}
+        except Exception:
+            _PROTECTED_BASE_PIDS = {os.getpid(), 0, 4}
+    return _PROTECTED_BASE_PIDS
 
 
 def discover_project_drift_ports(
@@ -573,8 +923,17 @@ def discover_project_drift_ports(
     proc_cache: dict[int, dict[str, Any]] | None = None,
 ) -> list[int]:
     expected = set(project.get("expected_ports", []))
+    if not expected or "--strictPort" in (project.get("command") or []):
+        return []
+    if project.get("type") != "command":
+        return []
+
+    owned_expected, _ = _inspect_expected_port_ownership(project, tcp_items, all_projects, proc_cache)
+    if owned_expected:
+        return []
+
     root = Path(project["working_directory"]).resolve()
-    protected = {os.getpid(), 0, 4, *(p.pid for p in psutil.Process().parents())}
+    protected = _get_protected_pids()
     pid_ports: dict[int, set[int]] = {}
     for row in tcp_items:
         pid = row.get("pid")
@@ -591,17 +950,18 @@ def discover_project_drift_ports(
 
     discovered: set[int] = set()
     for pid, ports in pid_ports.items():
+        proc_entry = proc_cache.get(pid) if proc_cache is not None else None
         if proc_cache is not None:
-            if pid not in proc_cache:
+            if proc_entry is None:
                 continue
-            proc = proc_cache[pid]["process"]
+            proc = proc_entry["process"]
         else:
             try:
                 proc = psutil.Process(pid)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
         try:
-            if is_owned_by_project(proc, root, project, all_projects, strict_for_drift=True):
+            if is_owned_by_project(proc, root, project, all_projects, strict_for_drift=True, proc_meta=proc_entry):
                 for port in ports:
                     if port not in expected and port not in all_other_expected:
                         discovered.add(port)
@@ -670,10 +1030,19 @@ def project_state(
     managed_running = bool(tracked and tracked.poll() is None)
 
     drift_ports: list[int] = []
+    owned_expected_ports: list[int] = []
+    port_conflicts: list[dict[str, Any]] = []
     if tcp_items is not None:
+        owned_expected_ports, port_conflicts = _inspect_expected_port_ownership(
+            project, tcp_items, all_projects, proc_cache
+        )
         drift_ports = discover_project_drift_ports(project, tcp_items, all_projects, proc_cache)
 
-    expected_listening = bool(project["expected_ports"] and any(port in active_ports for port in project["expected_ports"]))
+    if tcp_items is not None and project.get("type") == "command" and not managed_running:
+        expected_listening = bool(owned_expected_ports)
+    else:
+        expected_listening = bool(project["expected_ports"] and any(port in active_ports for port in project["expected_ports"]))
+
     drift_listening = bool(drift_ports)
     path_exists = project.get("path_exists", True)
 
@@ -722,10 +1091,14 @@ def project_state(
         consistency = "definition_missing"
     elif drift_listening:
         consistency = "port_drift"
+    elif port_conflicts and state != "running":
+        consistency = "port_conflict"
     else:
         consistency = "synced"
 
-    active_expected = [p for p in project.get("expected_ports", []) if p in active_ports]
+    active_expected = owned_expected_ports if (tcp_items is not None and project.get("type") == "command") else [
+        p for p in project.get("expected_ports", []) if p in active_ports
+    ]
     if drift_listening:
         effective_port = drift_ports[0]
         effective_ports = drift_ports
@@ -739,8 +1112,9 @@ def project_state(
         effective_port = None
         effective_ports = []
 
+    # 仅在真正发生端口漂移时改写 URL 端口号，防止覆盖自定义代理路径（如 8787/skills）
     configured_url = project.get("url", "")
-    if drift_listening or (active_expected and configured_url):
+    if drift_listening:
         effective_url = derive_effective_url(configured_url, project.get("expected_ports", []), effective_port)
     else:
         effective_url = configured_url
@@ -752,6 +1126,8 @@ def project_state(
         "consistency": consistency,
         "port_drift": drift_listening,
         "discovered_ports": drift_ports,
+        "port_conflict": bool(port_conflicts and state != "running"),
+        "port_conflicts": port_conflicts,
         "effective_port": effective_port,
         "effective_ports": effective_ports,
         "effective_url": effective_url,
@@ -768,7 +1144,10 @@ def project_state(
     if not project["allow_stop"]:
         reason = project.get("stop_disabled_reason") or "该项目尚未配置网页停止方式"
     elif state not in ("running", "starting"):
-        if is_start_timeout:
+        if port_conflicts:
+            c0 = port_conflicts[0]
+            reason = f"端口 {c0['port']} 被其他目录的程序 ({c0['process']} · PID {c0['pid']}) 占用，未确认属于这个项目"
+        elif is_start_timeout:
             reason = "启动超时（30秒内未检测到监听端口），请检查日志或重试"
         elif state == "missing":
             reason = "项目目录不存在，无法在此启动或停止"
@@ -1485,6 +1864,68 @@ def stop_project(project: dict[str, Any]) -> dict[str, Any]:
     return response
 
 
+def read_project_logs(project_id: str, max_lines: int = 120) -> dict[str, Any]:
+    """读取受管项目的控制台日志文件末尾内容，辅助排查启动异常。"""
+    project = find_project(project_id)
+    log_path = LOG_DIR / f"project-{project['id']}.log"
+    if not log_path.exists():
+        return {
+            "ok": True,
+            "project_id": project["id"],
+            "name": project["name"],
+            "log_path": str(log_path),
+            "exists": False,
+            "lines": [],
+        }
+    lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-max_lines:]
+    return {
+        "ok": True,
+        "project_id": project["id"],
+        "name": project["name"],
+        "log_path": str(log_path),
+        "exists": True,
+        "lines": lines,
+    }
+
+
+def release_port_conflict(project_id: str, target_port: int, target_pid: int) -> dict[str, Any]:
+    """安全释放占用已登记项目预期端口的外部普通进程（排除系统服务、IDE 宿主与工作台自身）。"""
+    project = find_project(project_id)
+    if target_port not in project.get("expected_ports", []):
+        raise ValueError(f"端口 {target_port} 不在项目“{project['name']}”的配置端口清单中")
+
+    ports_data = collect_ports(force=True)
+    matching = [
+        row for row in ports_data.get("items", [])
+        if row.get("protocol") == "TCP" and int(row.get("port") or 0) == target_port and int(row.get("pid") or 0) == target_pid
+    ]
+    if not matching:
+        raise RuntimeError(f"未发现 PID {target_pid} 正在监听端口 {target_port}，请刷新后确认")
+
+    protected = {os.getpid(), 0, 4, *(p.pid for p in psutil.Process().parents())}
+    if target_pid in protected or any(row.get("services") for row in matching):
+        raise RuntimeError("占用该端口的是系统服务、当前宿主环境或工作台自身，为保障系统稳定已拒绝强制结束")
+
+    proc = psutil.Process(target_pid)
+    pname = (proc.name() or "").lower()
+    if pname in {"antigravity.exe", "code.exe", "explorer.exe", "svchost.exe", "lsass.exe", "services.exe"}:
+        raise RuntimeError(f"占用进程 {pname} 属于关键桌面或开发环境进程，请手动确认处理")
+
+    kill_process_targets([proc])
+    PORT_CACHE["time"] = 0.0
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if target_port not in listening_ports():
+            break
+        time.sleep(0.25)
+        PORT_CACHE["time"] = 0.0
+    if target_port in listening_ports():
+        raise RuntimeError(f"已发送结束信号，但端口 {target_port} 仍被占用（可能存在守护自启机制）")
+
+    append_action(f"CONFLICT released project={project_id} port={target_port} pid={target_pid} process={pname}")
+    return {"ok": True, "project_id": project_id, "port": target_port, "pid": target_pid}
+
+
 def allowed_host(value: str) -> bool:
     host = value.strip().lower()
     if host.startswith("["):
@@ -1498,7 +1939,11 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "PortConsole/1.0"
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        append_action(f"HTTP client={self.client_address[0]} {fmt % args}")
+        # 过滤常规只读轮询与静态资源访问噪音，仅记录写操作与异常请求
+        rendered = fmt % args
+        if '"GET ' in rendered and ('" 200 ' in rendered or '" 304 ' in rendered or '" 204 ' in rendered):
+            return
+        append_action(f"HTTP client={self.client_address[0]} {rendered}")
 
     def end_headers(self) -> None:
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -1620,13 +2065,35 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(catalog_payload())
                 return
             if path == "/api/actions":
-                lines = []
+                lines: list[str] = []
                 if ACTION_LOG.exists():
-                    lines = ACTION_LOG.read_text(encoding="utf-8", errors="replace").splitlines()[-80:]
+                    raw_lines = ACTION_LOG.read_text(encoding="utf-8", errors="replace").splitlines()
+                    # 按 ISO 时间戳聚合多行日志，并过滤常规只读轮询与损坏碎片行
+                    iso_re = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
+                    merged: list[str] = []
+                    for ln in raw_lines:
+                        stripped = ln.strip()
+                        if not stripped:
+                            continue
+                        if iso_re.match(stripped):
+                            if 'HTTP client=' in stripped and ('" 200 ' in stripped or '" 304 ' in stripped or '" 204 ' in stripped):
+                                continue
+                            merged.append(stripped)
+                        elif merged and not stripped.startswith("HTTP/") and '" 200 ' not in stripped:
+                            merged[-1] = f"{merged[-1]} | {stripped}"
+                    lines = merged[-100:]
                 self.send_json({"ok": True, "items": lines})
                 return
             if path == "/api/doctor":
                 self.send_json({"ok": True, "report": run_system_doctor()})
+                return
+            match_logs = re.fullmatch(r"/api/projects/([a-zA-Z0-9_.-]+)/logs", path)
+            if match_logs:
+                proj_id = match_logs.group(1)
+                try:
+                    self.send_json(read_project_logs(proj_id))
+                except KeyError as exc:
+                    self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.NOT_FOUND)
                 return
             match_diag = re.fullmatch(r"/api/projects/([a-zA-Z0-9_.-]+)/diagnose", path)
             if match_diag:
@@ -1671,6 +2138,21 @@ class Handler(BaseHTTPRequestHandler):
             with ACTION_LOCK:
                 result = auto_archive_stale_projects()
             self.send_json({"ok": True, "result": result, "projects": catalog_payload()})
+            return
+        if parsed.path == "/api/ports/release-conflict":
+            try:
+                payload = self.read_json()
+                proj_id = str(payload.get("project_id") or "")
+                target_port = int(payload.get("port") or 0)
+                target_pid = int(payload.get("pid") or 0)
+                with ACTION_LOCK:
+                    result = release_port_conflict(proj_id, target_port, target_pid)
+                self.send_json({"ok": True, "result": result, "projects": catalog_payload()})
+            except KeyError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.NOT_FOUND)
+            except (ValueError, RuntimeError, OSError, psutil.Error) as exc:
+                append_action(f"CONFLICT release_failed error={exc}")
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         match = re.fullmatch(r"/api/projects/([a-zA-Z0-9_.-]+)/(start|stop|archive|restore|sync-port|delete|repair)", parsed.path)
         if not match:
@@ -1718,7 +2200,12 @@ def main() -> int:
     pid_file = RUNTIME_DIR / "server.pid"
     pid_file.write_text(str(os.getpid()), encoding="ascii")
     append_action(f"SERVER start host={HOST} port={PORT} pid={os.getpid()}")
-    print(f"本机端口控制台：http://{HOST}:{PORT}")
+    # 后台异步预热端口与项目目录缓存，确保首次打开网页毫秒级秒开
+    threading.Thread(target=lambda: catalog_payload(), daemon=True, name="warmup-cache").start()
+    try:
+        print(f"本机端口控制台：http://{HOST}:{PORT}")
+    except Exception:
+        pass
     try:
         server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:

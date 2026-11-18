@@ -509,6 +509,105 @@ ModuleNotFoundError: No module named 'cv2'
         self.assertIn("projects", report)
         self.assertGreater(report["summary"]["total"], 0)
 
+    def test_generic_cmd_tokens_do_not_cause_false_drift(self) -> None:
+        """验证 /c、run、127.0.0.1 等通用命令参数不会误将外部进程识别为端口漂移。"""
+        from unittest.mock import MagicMock
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            raw = {
+                "id": "vite-workbench",
+                "type": "command",
+                "working_directory": str(root),
+                "command": ["cmd.exe", "/d", "/c", "npm.cmd", "run", "dev", "--", "--host", "127.0.0.1", "--port", "5177", "--strictPort"],
+                "expected_ports": [5177],
+                "enabled": True,
+            }
+            project = server.normalize_project(raw, root / "port-console.project.json")
+            fake_proc = MagicMock()
+            fake_proc.pid = 38424
+            fake_proc.name.return_value = "language_server.exe"
+            fake_proc.cmdline.return_value = ["C:\\ide\\language_server.exe", "run", "--host", "127.0.0.1"]
+            fake_proc.exe.return_value = "C:\\ide\\language_server.exe"
+            fake_proc.cwd.return_value = "C:\\ide"
+            self.assertFalse(server.is_owned_by_project(fake_proc, root, project, strict_for_drift=True))
+            self.assertEqual(
+                server.discover_project_drift_ports(
+                    project,
+                    [{"protocol": "TCP", "port": 41562, "pid": 38424}],
+                    proc_cache={38424: {"process": fake_proc, "cwd": "C:\\ide", "cmdline": fake_proc.cmdline()}},
+                ),
+                [],
+            )
+
+    def test_custom_proxy_url_preserved_when_not_drifted(self) -> None:
+        """验证未发生漂移时，自定义代理路径 URL（如 8787/skills）不会被强制替换为后端端口。"""
+        from unittest.mock import MagicMock
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            raw = {
+                "id": "skills-sub",
+                "type": "command",
+                "working_directory": str(root),
+                "command": ["python", "server.py"],
+                "expected_ports": [8765],
+                "url": "http://127.0.0.1:8787/skills",
+                "enabled": True,
+            }
+            project = server.normalize_project(raw, root / "port-console.project.json")
+            owned_proc = MagicMock()
+            owned_proc.pid = 77777
+            owned_proc.name.return_value = "python.exe"
+            owned_proc.cmdline.return_value = ["python", str(root / "server.py")]
+            owned_proc.exe.return_value = sys.executable
+            owned_proc.cwd.return_value = str(root)
+            tcp_items = [{"protocol": "TCP", "port": 8765, "pid": 77777, "process": "python.exe"}]
+            state = server.project_state(
+                project,
+                active_ports={8765},
+                tcp_items=tcp_items,
+                proc_cache={77777: {"process": owned_proc, "cwd": str(root), "cmdline": owned_proc.cmdline()}},
+            )
+            self.assertEqual(state["state"], "running")
+            self.assertFalse(state["port_drift"])
+            self.assertEqual(state["url"], "http://127.0.0.1:8787/skills")
+
+    def test_external_port_conflict_marks_stopped_and_exposes_conflict_detail(self) -> None:
+        """验证项目预期端口被外部无关目录进程占用时，状态为 stopped 并返回冲突详情。"""
+        from unittest.mock import MagicMock
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "my_proj"
+            other_dir = Path(directory) / "foreign_app"
+            root.mkdir()
+            other_dir.mkdir()
+            raw = {
+                "id": "museflow-demo",
+                "type": "command",
+                "working_directory": str(root),
+                "command": ["python", "server.py"],
+                "expected_ports": [8788, 8766],
+                "url": "http://127.0.0.1:8788/",
+                "enabled": True,
+                "allow_stop": True,
+            }
+            project = server.normalize_project(raw, root / "port-console.project.json")
+            foreign_proc = MagicMock()
+            foreign_proc.pid = 88888
+            foreign_proc.name.return_value = "node.exe"
+            foreign_proc.cmdline.return_value = ["node.exe", "server.mjs"]
+            foreign_proc.exe.return_value = "C:\\nodejs\\node.exe"
+            foreign_proc.cwd.return_value = str(other_dir)
+            tcp_items = [{"protocol": "TCP", "port": 8766, "pid": 88888, "process": "node.exe", "executable": "C:\\nodejs\\node.exe"}]
+            state = server.project_state(
+                project,
+                active_ports={8766},
+                tcp_items=tcp_items,
+                proc_cache={88888: {"process": foreign_proc, "cwd": str(other_dir), "cmdline": foreign_proc.cmdline()}},
+            )
+            self.assertEqual(state["state"], "stopped")
+            self.assertTrue(state["port_conflict"])
+            self.assertFalse(state["can_stop"])
+            self.assertEqual(state["port_conflicts"][0]["port"], 8766)
+
 
 if __name__ == "__main__":
 

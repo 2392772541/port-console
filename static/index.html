@@ -9,33 +9,34 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <div class="ambient ambient-one"></div>
-  <div class="ambient ambient-two"></div>
-
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="brand">
+      <a class="brand" href="#ports">
         <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-        <div>
+        <div class="brand-copy">
           <strong>本机工作台</strong>
           <small>项目与技能，都在这里</small>
         </div>
-      </div>
+      </a>
 
+      <div class="nav-group-label">项目与服务</div>
       <nav aria-label="主导航">
-        <button class="nav-item active" data-view="ports">
+        <button class="nav-item active" type="button" data-view="ports">
           <span class="nav-index">01</span><span>我的项目端口</span>
         </button>
-        <button class="nav-item" data-view="projects">
+        <button class="nav-item" type="button" data-view="projects">
           <span class="nav-index">02</span><span>项目控制</span>
         </button>
-        <button class="nav-item" data-view="activity">
+        <button class="nav-item" type="button" data-view="activity">
           <span class="nav-index">03</span><span>操作记录</span>
         </button>
-        <a class="nav-item" href="/skills"><span class="nav-index">04</span><span>我的技能</span></a>
+
+        <div class="nav-group-label nav-group-gap">个人技能资产</div>
+        <a class="nav-item" href="/skills#/skills"><span class="nav-index">04</span><span>我的技能</span></a>
         <a class="nav-item" href="/skills#/categories"><span class="nav-index">05</span><span>按用途分类</span></a>
         <a class="nav-item" href="/skills#/favorites"><span class="nav-index">06</span><span>我的收藏</span></a>
-        <a class="nav-item" href="/skills#/monitor"><span class="nav-index">07</span><span>技能监控</span></a>
+        <a class="nav-item" href="/skills#/activity"><span class="nav-index">07</span><span>技能变更</span></a>
+        <a class="nav-item" href="/skills#/monitor"><span class="nav-index">08</span><span>技能监控</span></a>
       </nav>
 
       <div class="sidebar-foot">
@@ -43,14 +44,14 @@
           <span id="connectionDot" class="status-dot"></span>
           <span id="connectionText">正在连接本机服务</span>
         </div>
-        <p>仅监听 127.0.0.1</p>
+        <p>仅本机访问 · 127.0.0.1</p>
       </div>
     </aside>
 
     <main>
       <header class="topbar">
         <div>
-          <p class="eyebrow">ONLY YOUR PROJECTS</p>
+          <p class="eyebrow">个人工作空间 · 本机项目与服务</p>
           <h1 id="pageTitle">我的项目端口</h1>
         </div>
         <div class="top-actions">
@@ -64,43 +65,50 @@
       <section id="portsView" class="view active" aria-labelledby="pageTitle">
         <div class="metrics" aria-label="端口统计">
           <article class="metric metric-accent">
-            <span>已登记项目</span><strong id="tcpMetric">—</strong><small>只统计你的项目</small>
+            <span>已登记项目</span><strong id="tcpMetric">—</strong><small>只统计你的活跃项目</small>
           </article>
           <article class="metric">
             <span>正在运行</span><strong id="udpMetric">—</strong><small>现在可以直接访问</small>
           </article>
           <article class="metric">
-            <span>项目端口</span><strong id="uniqueMetric">—</strong><small>重复绑定已合并</small>
+            <span>项目端口</span><strong id="uniqueMetric">—</strong><small>重复绑定已自动合并</small>
           </article>
           <article class="metric metric-warn">
-            <span>局域网可见</span><strong id="publicMetric">—</strong><small>其他设备可能访问</small>
+            <span>局域网可见</span><strong id="publicMetric">—</strong><small>同网络设备可能访问</small>
           </article>
           <article class="metric">
-            <span>尚未启动</span><strong id="processMetric">—</strong><small>可到项目控制中启动</small>
+            <span>尚未启动</span><strong id="processMetric">—</strong><small>可到项目控制一键启动</small>
           </article>
         </div>
 
         <section class="panel">
           <div class="panel-head">
             <div>
-              <p class="panel-kicker">YOUR PROJECT ENDPOINTS</p>
+              <p class="panel-kicker">项目访问入口</p>
               <h2>真正需要的项目入口</h2>
             </div>
-            <span id="resultCount" class="count-pill">0 条</span>
+            <div class="panel-head-right">
+              <label class="inline-switch" title="开启后将额外展示未登记的本机其他监听端口，便于排查端口占用">
+                <input id="showAllPortsToggle" type="checkbox">
+                <span>包含未登记监听端口</span>
+              </label>
+              <span id="resultCount" class="count-pill">0 条</span>
+            </div>
           </div>
 
           <div class="filters">
             <label class="search-field">
-              <span class="sr-only">搜索端口、进程或功能</span>
+              <span class="sr-only">搜索项目名称、用途或端口</span>
               <span aria-hidden="true">⌕</span>
-              <input id="portSearch" type="search" placeholder="搜索项目名称、用途或端口">
+              <input id="portSearch" type="search" placeholder="搜索项目名称、用途、进程或端口号">
             </label>
-            <div class="segmented" role="group" aria-label="协议筛选">
-              <button class="filter-chip active" type="button" data-protocol="">全部项目</button>
+            <div class="segmented" role="group" aria-label="运行状态筛选">
+              <button class="filter-chip active" type="button" data-protocol="">全部</button>
               <button class="filter-chip" type="button" data-protocol="running">运行中</button>
+              <button class="filter-chip" type="button" data-protocol="conflict">端口冲突</button>
               <button class="filter-chip" type="button" data-protocol="stopped">未启动</button>
             </div>
-            <select id="scopeFilter" aria-label="绑定范围筛选">
+            <select id="scopeFilter" aria-label="访问范围筛选">
               <option value="">全部访问范围</option>
               <option value="loopback">只有本机能访问</option>
               <option value="all">局域网也能访问</option>
@@ -112,16 +120,16 @@
             <table>
               <thead>
                 <tr>
-                  <th>项目 / 端口</th>
-                  <th>谁能访问</th>
-                  <th>运行程序</th>
-                  <th>这个项目是做什么的</th>
-                  <th>状态</th>
-                  <th><span class="sr-only">操作</span></th>
+                  <th class="col-port">项目 / 端口</th>
+                  <th class="col-scope">谁能访问</th>
+                  <th class="col-proc">运行程序</th>
+                  <th class="col-desc">这个项目是做什么的</th>
+                  <th class="col-state">状态</th>
+                  <th class="col-actions"><span class="sr-only">操作</span></th>
                 </tr>
               </thead>
               <tbody id="portsBody">
-                <tr><td colspan="6" class="empty-cell">正在读取 Windows 端口信息…</td></tr>
+                <tr><td colspan="6" class="empty-cell">正在读取本机端口信息…</td></tr>
               </tbody>
             </table>
           </div>
@@ -131,9 +139,9 @@
       <section id="projectsView" class="view" aria-labelledby="pageTitle">
         <div class="project-intro panel">
           <div>
-            <p class="panel-kicker">SERVICE CATALOG</p>
+            <p class="panel-kicker">项目启停管理</p>
             <h2>登记一次，以后直接启动</h2>
-            <p>查看已登记项目的状态，打开网页或按需启动。后台巡检发现的新项目仍会加入同一份清单；个人技能已接入左侧技能模块。</p>
+            <p>集中管理已登记的本机项目与 AI 工具服务，支持一键启停、端口冲突排障与运行日志查看。</p>
           </div>
           <div id="capabilityBadges" class="capabilities"></div>
         </div>
@@ -141,13 +149,13 @@
         <div class="project-toolbar">
           <label class="search-field project-search">
             <span aria-hidden="true">⌕</span>
-            <input id="projectSearch" type="search" placeholder="搜索项目、标签或端口">
+            <input id="projectSearch" type="search" placeholder="搜索项目名称、标签、目录或端口">
           </label>
           <div class="project-toolbar-actions">
             <button id="doctorBtn" class="button button-ghost" type="button" title="一键全量体检项目运行环境与端口健康度">🩺 环境体检</button>
             <button id="reconcileStaleBtn" class="button button-ghost" type="button" title="自动将目录不存在的失效项目移入归档区">🧹 自动归档失效项</button>
+            <span id="projectCount" class="count-pill">0 个项目</span>
           </div>
-          <span id="projectCount" class="count-pill">0 个项目</span>
         </div>
 
         <div id="projectErrors" class="notice hidden" role="status"></div>
@@ -160,12 +168,20 @@
         <section class="panel activity-panel">
           <div class="panel-head">
             <div>
-              <p class="panel-kicker">LOCAL AUDIT TRAIL</p>
+              <p class="panel-kicker">本机操作审计</p>
               <h2>最近操作记录</h2>
             </div>
-            <button id="refreshActivity" class="button button-ghost" type="button">刷新记录</button>
+            <div class="panel-head-right">
+              <label class="search-field activity-search">
+                <span aria-hidden="true">⌕</span>
+                <input id="activitySearch" type="search" placeholder="筛选项目名或动作类型">
+              </label>
+              <button id="refreshActivity" class="button button-ghost" type="button">↻ 刷新记录</button>
+            </div>
           </div>
-          <pre id="activityLog" class="activity-log">等待读取…</pre>
+          <div id="activityList" class="activity-list">
+            <div class="empty-cell">正在读取操作记录…</div>
+          </div>
         </section>
       </section>
     </main>
@@ -173,7 +189,7 @@
 
   <dialog id="detailDialog">
     <div class="dialog-head">
-      <div><p class="panel-kicker">ENDPOINT DETAIL</p><h2 id="detailTitle">端口详情</h2></div>
+      <div><p class="panel-kicker">端口与服务详情</p><h2 id="detailTitle">端口详情</h2></div>
       <button id="closeDialog" class="icon-button" type="button" aria-label="关闭">×</button>
     </div>
     <div id="detailContent" class="detail-content"></div>
@@ -181,10 +197,18 @@
 
   <dialog id="doctorDialog">
     <div class="dialog-head">
-      <div><p class="panel-kicker">HEALTH CHECK DOCTOR</p><h2 id="doctorTitle">🩺 系统环境体检报告</h2></div>
+      <div><p class="panel-kicker">系统环境体检</p><h2 id="doctorTitle">🩺 系统环境体检报告</h2></div>
       <button id="closeDoctorDialog" class="icon-button" type="button" aria-label="关闭">×</button>
     </div>
-    <div id="doctorContent" class="detail-content" style="max-height: 70vh; overflow-y: auto;"></div>
+    <div id="doctorContent" class="detail-content dialog-scroll-body"></div>
+  </dialog>
+
+  <dialog id="logDialog">
+    <div class="dialog-head">
+      <div><p class="panel-kicker">控制台输出</p><h2 id="logTitle">项目运行日志</h2></div>
+      <button id="closeLogDialog" class="icon-button" type="button" aria-label="关闭">×</button>
+    </div>
+    <div id="logContent" class="detail-content dialog-scroll-body"></div>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
